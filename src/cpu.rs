@@ -136,12 +136,14 @@ impl CPU {
         self.cycles = 8;
     }
 
+    // Implicit
     pub fn imp(&mut self, _bus: &mut Bus) -> u8 {
         self.fetched = self.a;
 
         0
     }
 
+    // Immediate
     pub fn imm(&mut self, _bus: &mut Bus) -> u8 {
         self.addr_abs = self.pc;
         self.pc += 1;
@@ -149,51 +151,146 @@ impl CPU {
         0
     }
 
+    // Zero page
     pub fn zp0(&mut self, bus: &mut Bus) -> u8 {
         self.addr_abs = bus.read(self.pc, false) as u16;
         self.pc += 1;
-        self.addr_abs &= 0x00FF;
 
         0
     }
 
+    // Zero page indexed with x
     pub fn zpx(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_abs = bus.read(self.pc, false) as u16 + self.x as u16;
+        self.addr_abs = (bus.read(self.pc, false) + self.x) as u16;
         self.pc += 1;
 
         0
     }
 
-    pub fn zpy(&mut self, _bus: &mut Bus) -> u8 {
+    // Zero page indexed with y
+    pub fn zpy(&mut self, bus: &mut Bus) -> u8 {
+        self.addr_abs = (bus.read(self.pc, false) + self.y) as u16;
+        self.pc += 1;
+
         0
     }
 
-    pub fn rel(&mut self, _bus: &mut Bus) -> u8 {
+    // Relative
+    pub fn rel(&mut self, bus: &mut Bus) -> u8 {
+        self.addr_rel = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+
+        if self.addr_rel & 0x0080 != 0 {
+            // If bit 7 isset, fill upper byte with 1s to preserve negative value
+            self.addr_rel |= 0xFF00;
+        }
+
         0
     }
 
-    pub fn abs(&mut self, _bus: &mut Bus) -> u8 {
+    // Absolute
+    pub fn abs(&mut self, bus: &mut Bus) -> u8 {
+        let lo = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+        let hi = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+
+        self.addr_abs = (hi << 8) | lo;
+
         0
     }
 
-    pub fn abx(&mut self, _bus: &mut Bus) -> u8 {
+    // Absolute indexed with x
+    pub fn abx(&mut self, bus: &mut Bus) -> u8 {
+        let lo = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+        let hi = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+
+        self.addr_abs = (hi << 8) | lo;
+        self.addr_abs += self.x as u16;
+
+        if self.addr_abs & 0xFF00 != (hi << 8) {
+            // Page boundary crossed (+1 cycle)
+            1
+        } else {
+            0
+        }
+    }
+
+    // Absolute indexed with y
+    pub fn aby(&mut self, bus: &mut Bus) -> u8 {
+        let lo = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+        let hi = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+
+        self.addr_abs = (hi << 8) | lo;
+        self.addr_abs += self.y as u16;
+
+        if self.addr_abs & 0xFF00 != (hi << 8) {
+            // Page boundary crossed (+1 cycle)
+            1
+        } else {
+            0
+        }
+    }
+
+    // Indirect
+    pub fn ind(&mut self, bus: &mut Bus) -> u8 {
+        let lo = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+        let hi = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+
+        let addr = (hi << 8) | lo;
+
+        if lo == 0x00FF {
+            // Simulates 6502 hardware bug: addr treated as 2 separate bytes, carry not propagated to MSB
+            // Example: JMP ($10FF) reads LSB from $10FF and MSB from $1000 (not $1100)
+            self.addr_abs =
+                ((bus.read(addr & 0xFF00, false) as u16) << 8) | bus.read(addr, false) as u16;
+        } else {
+            self.addr_abs =
+                ((bus.read(addr + 1, false) as u16) << 8) | bus.read(addr, false) as u16;
+        }
+
         0
     }
 
-    pub fn aby(&mut self, _bus: &mut Bus) -> u8 {
+    // Indirect indexed with x
+    pub fn izx(&mut self, bus: &mut Bus) -> u8 {
+        let addr = bus.read(self.pc, false);
+        self.pc += 1;
+
+        let lo = bus.read((addr + self.x) as u16, false) as u16;
+        let hi = bus.read((addr + self.x + 1) as u16, false) as u16;
+
+        self.addr_abs = (hi << 8) | lo;
+
         0
     }
 
-    pub fn ind(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
+    // Indirect indexed with y
+    pub fn izy(&mut self, bus: &mut Bus) -> u8 {
+        let addr = bus.read(self.pc, false);
+        self.pc += 1;
 
-    pub fn izx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
+        let lo = bus.read(addr as u16, false) as u16;
+        let hi = bus.read((addr + 1) as u16, false) as u16;
 
-    pub fn izy(&mut self, _bus: &mut Bus) -> u8 {
-        0
+        // Comparatively to izx, izy adds the index after dereferencing the pointer
+        // This instruction is better suited to iterate through data structures that span
+        // accross multiple pages
+        self.addr_abs = (hi << 8) | lo;
+        self.addr_abs += self.y as u16;
+
+        if self.addr_abs & 0xFF00 != (hi << 8) {
+            // Page boundary crossed (+1 cycle)
+            1
+        } else {
+            0
+        }
     }
 
     pub fn brk(&mut self, _bus: &mut Bus) -> u8 {
