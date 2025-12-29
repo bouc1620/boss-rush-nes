@@ -1,5 +1,5 @@
 use crate::bus::Bus;
-use crate::instructions::{INSTRUCTIONS, Instruction};
+use crate::instructions::{AddrMode, INSTRUCTIONS, Instruction};
 
 #[derive(Default)]
 pub struct CPU {
@@ -33,8 +33,8 @@ impl CPU {
         INSTRUCTIONS[row][col]
     }
 
-    fn get_flag(&self, flag: u8) -> u8 {
-        if self.p & flag != 0 { 1 } else { 0 }
+    fn has_flag(&self, flag: u8) -> bool {
+        self.p & flag != 0
     }
 
     fn set_flag(&mut self, flag: u8, value: bool) {
@@ -43,6 +43,14 @@ impl CPU {
         } else {
             self.p &= !flag;
         }
+    }
+
+    fn fetch(&mut self, bus: &mut Bus) -> u8 {
+        if self.current_instruction().mode != AddrMode::Imp {
+            self.fetched = bus.read(self.addr_abs, false);
+        }
+
+        self.fetched
     }
 
     pub fn reset(&mut self, bus: &mut Bus) {
@@ -83,8 +91,109 @@ impl CPU {
     }
 
     // Interrupt request
-    pub fn irq(&mut self, _bus: &mut Bus) -> u8 {
-        0 // TODO: rendu ici
+    pub fn irq(&mut self, bus: &mut Bus) {
+        if self.has_flag(FLAG_INTERRUPT_DISABLE) {
+            return;
+        }
+
+        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        self.sp -= 1;
+        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        self.sp -= 1;
+
+        self.set_flag(FLAG_BREAK, false);
+        self.set_flag(FLAG_UNUSED, true);
+        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+
+        bus.write(0x0100 + self.sp as u16, self.p);
+        self.sp -= 1;
+
+        let lo = bus.read(0xFFFE, false) as u16;
+        let hi = bus.read(0xFFFF, false) as u16;
+        self.pc = (hi << 8) | lo;
+
+        self.cycles = 7;
+    }
+
+    // Non-maskable interrupt
+    pub fn nmi(&mut self, bus: &mut Bus) {
+        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        self.sp -= 1;
+        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        self.sp -= 1;
+
+        self.set_flag(FLAG_BREAK, false);
+        self.set_flag(FLAG_UNUSED, true);
+        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+
+        bus.write(0x0100 + self.sp as u16, self.p);
+        self.sp -= 1;
+
+        let lo = bus.read(0xFFFA, false) as u16;
+        let hi = bus.read(0xFFFB, false) as u16;
+        self.pc = (hi << 8) | lo;
+
+        self.cycles = 8;
+    }
+
+    pub fn imp(&mut self, _bus: &mut Bus) -> u8 {
+        self.fetched = self.a;
+
+        0
+    }
+
+    pub fn imm(&mut self, _bus: &mut Bus) -> u8 {
+        self.addr_abs = self.pc;
+        self.pc += 1;
+
+        0
+    }
+
+    pub fn zp0(&mut self, bus: &mut Bus) -> u8 {
+        self.addr_abs = bus.read(self.pc, false) as u16;
+        self.pc += 1;
+        self.addr_abs &= 0x00FF;
+
+        0
+    }
+
+    pub fn zpx(&mut self, bus: &mut Bus) -> u8 {
+        self.addr_abs = bus.read(self.pc, false) as u16 + self.x as u16;
+        self.pc += 1;
+
+        0
+    }
+
+    pub fn zpy(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn rel(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn abs(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn abx(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn aby(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn ind(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn izx(&mut self, _bus: &mut Bus) -> u8 {
+        0
+    }
+
+    pub fn izy(&mut self, _bus: &mut Bus) -> u8 {
+        0
     }
 
     pub fn brk(&mut self, _bus: &mut Bus) -> u8 {
@@ -308,54 +417,6 @@ impl CPU {
     }
 
     pub fn sed(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn zp0(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn imm(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn izx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn imp(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn abs(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn rel(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn izy(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn zpy(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn zpx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn aby(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn abx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn ind(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
