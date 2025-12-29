@@ -26,6 +26,10 @@ const FLAG_UNUSED: u8 = 0b010_0000;
 const FLAG_OVERFLOW: u8 = 0b0100_0000;
 const FLAG_NEGATIVE: u8 = 0b1000_0000;
 
+fn calc_overflow(a: u16, b: u16, result: u16) -> bool {
+    !(a ^ b) & (a ^ result) & 0x0080 != 0
+}
+
 impl CPU {
     fn current_instruction(&self) -> Instruction {
         let row = (self.opcode / 16) as usize;
@@ -135,6 +139,8 @@ impl CPU {
 
         self.cycles = 8;
     }
+
+    // Addressing modes
 
     // Implicit
     pub fn imp(&mut self, _bus: &mut Bus) -> u8 {
@@ -280,7 +286,7 @@ impl CPU {
         let hi = bus.read((addr + 1) as u16, false) as u16;
 
         // Comparatively to izx, izy adds the index after dereferencing the pointer
-        // This instruction is better suited to iterate through data structures that span
+        // The instruction is better suited to iterate through data structures that span
         // accross multiple pages
         self.addr_abs = (hi << 8) | lo;
         self.addr_abs += self.y as u16;
@@ -293,7 +299,239 @@ impl CPU {
         }
     }
 
-    pub fn brk(&mut self, _bus: &mut Bus) -> u8 {
+    // Opcodes
+
+    // Add with carry
+    pub fn adc(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        let carry = if self.has_flag(FLAG_CARRY) { 1 } else { 0 };
+        let temp = self.a as u16 + self.fetched as u16 + carry;
+
+        self.set_flag(FLAG_CARRY, temp & 0xFF00 != 0);
+        self.set_flag(FLAG_ZERO, temp & 0x00FF == 0);
+        self.set_flag(FLAG_NEGATIVE, temp & 0x0080 == 0);
+        self.set_flag(
+            FLAG_OVERFLOW,
+            calc_overflow(self.a as u16, self.fetched as u16, temp),
+        );
+
+        self.a = temp as u8;
+
+        1
+    }
+
+    // Bitwise AND
+    pub fn and(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        self.a &= self.fetched;
+
+        self.set_flag(FLAG_ZERO, self.a == 0);
+        self.set_flag(FLAG_NEGATIVE, self.a & 0x0080 != 0);
+
+        1
+    }
+
+    // Arithmetic shift left
+    pub fn asl(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        let temp = (self.fetched as u16) << 1;
+
+        self.set_flag(FLAG_CARRY, temp & 0xFF00 != 0);
+        self.set_flag(FLAG_ZERO, temp & 0x00FF == 0);
+        self.set_flag(FLAG_NEGATIVE, temp & 0x0080 == 0);
+
+        if self.current_instruction().mode == AddrMode::Imp {
+            self.a = temp as u8;
+        } else {
+            bus.write(self.addr_abs, temp as u8);
+        }
+
+        0
+    }
+
+    fn branch_taken(&mut self) {
+        self.cycles += 1;
+        self.addr_abs = self.pc + self.addr_rel;
+
+        if self.addr_abs & 0xFF00 != self.pc & 0xFF00 {
+            // Page boundary crossed (+1 cycle)
+            self.cycles += 1;
+        }
+
+        self.pc = self.addr_abs;
+    }
+
+    // Branch if carry clear
+    pub fn bcc(&mut self, _bus: &mut Bus) -> u8 {
+        if !self.has_flag(FLAG_CARRY) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Branch if carry set
+    pub fn bcs(&mut self, _bus: &mut Bus) -> u8 {
+        if self.has_flag(FLAG_CARRY) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Branch if equal
+    pub fn beq(&mut self, _bus: &mut Bus) -> u8 {
+        if !self.has_flag(FLAG_ZERO) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Bit test
+    pub fn bit(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        let temp = self.a & self.fetched;
+
+        self.set_flag(FLAG_ZERO, temp == 0);
+        self.set_flag(FLAG_OVERFLOW, temp & 0x0040 != 0);
+        self.set_flag(FLAG_NEGATIVE, temp & 0x0080 != 0);
+
+        0
+    }
+
+    // Branch if minus
+    pub fn bmi(&mut self, _bus: &mut Bus) -> u8 {
+        if self.has_flag(FLAG_NEGATIVE) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Branch if not equal
+    pub fn bne(&mut self, _bus: &mut Bus) -> u8 {
+        if self.has_flag(FLAG_ZERO) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Branch if plus
+    pub fn bpl(&mut self, _bus: &mut Bus) -> u8 {
+        if !self.has_flag(FLAG_NEGATIVE) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Break (software IRQ)
+    pub fn brk(&mut self, bus: &mut Bus) -> u8 {
+        self.pc += 1;
+
+        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+
+        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        self.sp -= 1;
+        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        self.sp -= 1;
+
+        self.set_flag(FLAG_BREAK, true);
+
+        bus.write(0x0100 + self.sp as u16, self.p);
+        self.sp -= 1;
+
+        self.set_flag(FLAG_BREAK, false);
+
+        let lo = bus.read(0xFFFE, false) as u16;
+        let hi = bus.read(0xFFFF, false) as u16;
+        self.pc = (hi << 8) | lo;
+
+        0
+    }
+
+    // Branch if overflow clear
+    pub fn bvc(&mut self, _bus: &mut Bus) -> u8 {
+        if !self.has_flag(FLAG_OVERFLOW) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Branch if overflow set
+    pub fn bvs(&mut self, _bus: &mut Bus) -> u8 {
+        if self.has_flag(FLAG_OVERFLOW) {
+            self.branch_taken();
+        }
+
+        0
+    }
+
+    // Clear carry
+    pub fn clc(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_CARRY, false);
+
+        0
+    }
+
+    // Clear decimal
+    pub fn cld(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_DECIMAL, false);
+
+        0
+    }
+
+    // Clear interrupt disable
+    pub fn cli(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_INTERRUPT_DISABLE, false);
+
+        0
+    }
+
+    // Clear overflow
+    pub fn clv(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_OVERFLOW, false);
+
+        0
+    }
+
+    fn set_compare_flags(&mut self, result: u16) {
+        self.set_flag(FLAG_CARRY, result & 0xFF00 == 0);
+        self.set_flag(FLAG_OVERFLOW, result == 0);
+        self.set_flag(FLAG_NEGATIVE, result & 0x0080 != 0);
+    }
+
+    // Compare a
+    pub fn cmp(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        self.set_compare_flags(self.a as u16 - self.fetched as u16);
+
+        0
+    }
+
+    // Compare x
+    pub fn cpx(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        self.set_compare_flags(self.x as u16 - self.fetched as u16);
+
+        0
+    }
+
+    // Compare y
+    pub fn cpy(&mut self, bus: &mut Bus) -> u8 {
+        self.fetch(bus);
+
+        self.set_compare_flags(self.y as u16 - self.fetched as u16);
+
         0
     }
 
@@ -305,31 +543,11 @@ impl CPU {
         0
     }
 
-    pub fn asl(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
     pub fn php(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
-    pub fn bpl(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn clc(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
     pub fn jsr(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn and(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn bit(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
@@ -338,10 +556,6 @@ impl CPU {
     }
 
     pub fn plp(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn bmi(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
@@ -369,19 +583,7 @@ impl CPU {
         0
     }
 
-    pub fn bvc(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn cli(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
     pub fn rts(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn adc(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
@@ -390,10 +592,6 @@ impl CPU {
     }
 
     pub fn pla(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn bvs(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
@@ -418,10 +616,6 @@ impl CPU {
     }
 
     pub fn txa(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn bcc(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
@@ -453,23 +647,7 @@ impl CPU {
         0
     }
 
-    pub fn bcs(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn clv(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
     pub fn tsx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn cpy(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn cmp(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
@@ -485,18 +663,6 @@ impl CPU {
         0
     }
 
-    pub fn bne(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn cld(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn cpx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
     pub fn sbc(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
@@ -506,10 +672,6 @@ impl CPU {
     }
 
     pub fn inx(&mut self, _bus: &mut Bus) -> u8 {
-        0
-    }
-
-    pub fn beq(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
 
