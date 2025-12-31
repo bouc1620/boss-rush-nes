@@ -19,5 +19,7 @@
   "rust-analyzer.diagnostics.disabled": ["unlinked-file"],
   "rust-analyzer.inlayHints.parameterHints.enable": false,
   "rust-analyzer.inlayHints.typeHints.enable": false,
-  "editor.inlayHints.enabled": "off"
+  "editor.inlayHints.enabled": "off",
+
+  "rust-analyzer.cargo.features": ["debug"]
 }

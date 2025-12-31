@@ -26,7 +26,14 @@ pub enum AddrMode {
     Izy,
 }
 
-pub static INSTRUCTIONS: [[Instruction; 16]; 16] = [
+pub fn get_instruction(opcode: u8) -> Instruction {
+    let row = (opcode / 16) as usize;
+    let col = (opcode % 16) as usize;
+
+    INSTRUCTIONS[row][col]
+}
+
+static INSTRUCTIONS: [[Instruction; 16]; 16] = [
     [
         Instruction {
             name: "brk",

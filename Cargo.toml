@@ -6,4 +6,7 @@ description = "A NES emulator written in Rust."
 authors = ["bouc1620"]
 license = "MIT"
 
+[features]
+debug = []
+
 [dependencies]

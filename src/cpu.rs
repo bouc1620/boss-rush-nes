@@ -1,7 +1,7 @@
 use std::cmp::max;
 
 use crate::bus::Bus;
-use crate::instructions::{AddrMode, INSTRUCTIONS, Instruction};
+use crate::instructions::{AddrMode, Instruction, get_instruction};
 
 #[derive(Default)]
 pub struct CPU {
@@ -34,10 +34,7 @@ fn calc_overflow(a: u16, b: u16, result: u16) -> bool {
 
 impl CPU {
     fn current_instruction(&self) -> Instruction {
-        let row = (self.opcode / 16) as usize;
-        let col = (self.opcode % 16) as usize;
-
-        INSTRUCTIONS[row][col]
+        get_instruction(self.opcode)
     }
 
     fn has_flag(&self, flag: u8) -> bool {
@@ -82,13 +79,16 @@ impl CPU {
     }
 
     pub fn step(&mut self, bus: &mut Bus) {
-        self.cycles = max(self.cycles - 1, 0);
-
         if self.cycles != 0 {
+            self.cycles = max(self.cycles - 1, 0);
             return;
         }
 
         self.opcode = bus.read(self.pc, false);
+
+        println!("PC:     {:04X}", self.pc);
+        println!("OPCODE: {:02X}", self.opcode);
+
         self.pc += 1;
 
         let Instruction {
@@ -946,5 +946,23 @@ impl CPU {
     // Invalid operations
     pub fn xxx(&mut self, _bus: &mut Bus) -> u8 {
         0
+    }
+}
+
+#[cfg(feature = "debug")]
+impl CPU {
+    pub fn print_state(&self) {
+        println!(
+            "A:{:02X} X:{:02X} Y:{:02X} SP:{:02X} PC:{:04X} P:{:08b}",
+            self.a, self.x, self.y, self.sp, self.pc, self.p
+        );
+    }
+
+    pub fn step_to_next_instruction(&mut self, bus: &mut Bus) {
+        self.step(bus);
+
+        while self.cycles != 0 {
+            self.step(bus);
+        }
     }
 }
