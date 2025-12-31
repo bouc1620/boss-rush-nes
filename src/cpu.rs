@@ -1,3 +1,5 @@
+use std::cmp::max;
+
 use crate::bus::Bus;
 use crate::instructions::{AddrMode, INSTRUCTIONS, Instruction};
 
@@ -6,9 +8,9 @@ pub struct CPU {
     a: u8,
     x: u8,
     y: u8,
-    sp: u8,
-    pc: u16,
-    p: u8,
+    sp: u8,  // Stack pointer
+    pc: u16, // Program counter
+    p: u8,   // Processor status
 
     addr_abs: u16, // Absolute address calculated by addressing mode
     addr_rel: u16, // Relative address offset for branch instructions
@@ -25,6 +27,7 @@ const FLAG_UNUSED: u8 = 0b010_0000;
 const FLAG_OVERFLOW: u8 = 0b0100_0000;
 const FLAG_NEGATIVE: u8 = 0b1000_0000;
 
+// This formula is derived from the truth table for a + b = result | overflow
 fn calc_overflow(a: u16, b: u16, result: u16) -> bool {
     !(a ^ b) & (a ^ result) & 0x0080 != 0
 }
@@ -33,6 +36,7 @@ impl CPU {
     fn current_instruction(&self) -> Instruction {
         let row = (self.opcode / 16) as usize;
         let col = (self.opcode % 16) as usize;
+
         INSTRUCTIONS[row][col]
     }
 
@@ -78,20 +82,26 @@ impl CPU {
     }
 
     pub fn step(&mut self, bus: &mut Bus) {
+        self.cycles = max(self.cycles - 1, 0);
+
         if self.cycles != 0 {
-            self.cycles -= 1;
             return;
         }
 
         self.opcode = bus.read(self.pc, false);
         self.pc += 1;
 
-        let instruction = self.current_instruction();
+        let Instruction {
+            cycles,
+            addr,
+            operate,
+            ..
+        } = self.current_instruction();
 
-        self.cycles = instruction.cycles;
+        self.cycles = cycles;
 
-        // Add +1 cycle only if a page is crossed and the opcode is a read (eligible for the penalty)
-        self.cycles += (instruction.addr)(self, bus) & (instruction.operate)(self, bus);
+        // Add +1 cycle penalty only if a page is crossed and the opcode is a read
+        self.cycles += (addr)(self, bus) & (operate)(self, bus);
     }
 
     // Interrupt request
@@ -105,11 +115,11 @@ impl CPU {
         bus.write(0x0100 + self.sp as u16, self.pc as u8);
         self.sp -= 1;
 
-        self.set_flag(FLAG_BREAK, false);
-        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
-
         bus.write(0x0100 + self.sp as u16, self.p);
         self.sp -= 1;
+
+        self.set_flag(FLAG_BREAK, false);
+        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
 
         let lo = bus.read(0xFFFE, false) as u16;
         let hi = bus.read(0xFFFF, false) as u16;
@@ -125,11 +135,11 @@ impl CPU {
         bus.write(0x0100 + self.sp as u16, self.pc as u8);
         self.sp -= 1;
 
-        self.set_flag(FLAG_BREAK, false);
-        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
-
         bus.write(0x0100 + self.sp as u16, self.p);
         self.sp -= 1;
+
+        self.set_flag(FLAG_BREAK, false);
+        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
 
         let lo = bus.read(0xFFFA, false) as u16;
         let hi = bus.read(0xFFFB, false) as u16;
@@ -137,7 +147,9 @@ impl CPU {
 
         self.cycles = 8;
     }
+}
 
+impl CPU {
     // Addressing modes
 
     // Implicit
@@ -248,8 +260,8 @@ impl CPU {
         let addr = (hi << 8) | lo;
 
         if lo == 0x00FF {
-            // Simulates 6502 hardware bug: addr treated as 2 separate bytes, carry not propagated to MSB
-            // Example: JMP ($10FF) reads LSB from $10FF and MSB from $1000 (not $1100)
+            // Simulates a 6502 hardware bug: addr treated as 2 separate bytes, carry is not propagated to MSB.
+            // Example: JMP ($10FF) reads LSB from $10FF and MSB from $1000 (not $1100).
             self.addr_abs =
                 ((bus.read(addr & 0xFF00, false) as u16) << 8) | bus.read(addr, false) as u16;
         } else {
@@ -281,9 +293,9 @@ impl CPU {
         let lo = bus.read(addr as u16, false) as u16;
         let hi = bus.read((addr + 1) as u16, false) as u16;
 
-        // Comparatively to izx, izy adds the index after dereferencing the pointer
-        // The instruction is better suited to iterate through data structures that span
-        // accross multiple pages
+        // Comparatively to izx, izy adds the index after dereferencing the pointer.
+        // This instruction is better suited to iterate through data structures that span
+        // accross multiple pages.
         self.addr_abs = (hi << 8) | lo;
         self.addr_abs += self.y as u16;
 
@@ -811,58 +823,127 @@ impl CPU {
         0
     }
 
-    pub fn sbc(&mut self, _bus: &mut Bus) -> u8 {
-        0
+    // Subtract with carry
+    pub fn sbc(&mut self, bus: &mut Bus) -> u8 {
+        let fetched = self.fetch(bus);
+        let inverted = !fetched;
+
+        let carry = if self.has_flag(FLAG_CARRY) { 1 } else { 0 };
+        let result = self.a as u16 + inverted as u16 + carry;
+
+        self.set_flag(FLAG_CARRY, result & 0xFF00 != 0);
+        self.set_flag(FLAG_ZERO, result & 0x00FF == 0);
+        self.set_flag(FLAG_NEGATIVE, result & 0x0080 == 0);
+        self.set_flag(
+            FLAG_OVERFLOW,
+            calc_overflow(self.a as u16, inverted as u16, result),
+        );
+
+        self.a = result as u8;
+
+        1
     }
 
+    // Set carry
     pub fn sec(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_CARRY, true);
+
         0
     }
 
+    // Set decimal
     pub fn sed(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_DECIMAL, true);
+
         0
     }
 
+    // Set interrupt disable
     pub fn sei(&mut self, _bus: &mut Bus) -> u8 {
+        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+
         0
     }
 
-    pub fn sta(&mut self, _bus: &mut Bus) -> u8 {
+    // Store a
+    pub fn sta(&mut self, bus: &mut Bus) -> u8 {
+        bus.write(self.addr_abs, self.a);
+
         0
     }
 
-    pub fn stx(&mut self, _bus: &mut Bus) -> u8 {
+    // Store x
+    pub fn stx(&mut self, bus: &mut Bus) -> u8 {
+        bus.write(self.addr_abs, self.x);
+
         0
     }
 
-    pub fn sty(&mut self, _bus: &mut Bus) -> u8 {
+    // Store y
+    pub fn sty(&mut self, bus: &mut Bus) -> u8 {
+        bus.write(self.addr_abs, self.y);
+
         0
     }
 
+    // Transfer a to x
     pub fn tax(&mut self, _bus: &mut Bus) -> u8 {
+        self.x = self.a;
+
+        self.set_flag(FLAG_ZERO, self.x == 0);
+        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+
         0
     }
 
+    // Transfer a to y
     pub fn tay(&mut self, _bus: &mut Bus) -> u8 {
+        self.y = self.a;
+
+        self.set_flag(FLAG_ZERO, self.y == 0);
+        self.set_flag(FLAG_NEGATIVE, self.y & 0x80 != 0);
+
         0
     }
 
+    // Transfer stack pointer to x
     pub fn tsx(&mut self, _bus: &mut Bus) -> u8 {
+        self.x = self.sp;
+
+        self.set_flag(FLAG_ZERO, self.x == 0);
+        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+
         0
     }
 
+    // Transfer x to a
     pub fn txa(&mut self, _bus: &mut Bus) -> u8 {
+        self.a = self.x;
+
+        self.set_flag(FLAG_ZERO, self.a == 0);
+        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+
         0
     }
 
+    // Transfer x to stack pointer
     pub fn txs(&mut self, _bus: &mut Bus) -> u8 {
+        self.sp = self.x;
+
         0
     }
 
+    // Transfer y to a
     pub fn tya(&mut self, _bus: &mut Bus) -> u8 {
+        self.a = self.y;
+
+        self.set_flag(FLAG_ZERO, self.a == 0);
+        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+
         0
     }
 
+    // Invalid operations
     pub fn xxx(&mut self, _bus: &mut Bus) -> u8 {
         0
     }
