@@ -1,0 +1,13 @@
+[package]
+name = "boss-rush-nes"
+version = "0.1.0"
+edition = "2024"
+description = "A NES emulator written in Rust."
+authors = ["bouc1620"]
+license = "MIT"
+
+[features]
+debug = []
+
+[dependencies]
+colored = "3.0.0"
