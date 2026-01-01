@@ -323,7 +323,9 @@ impl CPU {
         } else {
             0
         };
-        let result = self.a as u16 + fetched as u16 + carry;
+        let result = (self.a as u16)
+            .wrapping_add(fetched as u16)
+            .wrapping_add(carry);
 
         self.set_flag(StatusFlags::CARRY, result & 0xFF00 != 0);
         self.set_flag(StatusFlags::ZERO, result & 0x00FF == 0);
@@ -369,7 +371,7 @@ impl CPU {
 
     fn branch_taken(&mut self) {
         self.cycles += 1;
-        self.addr_abs = self.pc + self.addr_rel;
+        self.addr_abs = self.pc.wrapping_add(self.addr_rel);
 
         if self.addr_abs & 0xFF00 != self.pc & 0xFF00 {
             // Page boundary crossed (+1 cycle)
@@ -853,7 +855,9 @@ impl CPU {
         } else {
             0
         };
-        let result = self.a as u16 + inverted as u16 + carry;
+        let result = (self.a as u16)
+            .wrapping_add(inverted as u16)
+            .wrapping_add(carry);
 
         self.set_flag(StatusFlags::CARRY, result & 0xFF00 != 0);
         self.set_flag(StatusFlags::ZERO, result & 0x00FF == 0);

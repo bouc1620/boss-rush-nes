@@ -10,6 +10,7 @@ impl Default for Bus {
     }
 }
 
+pub const ADDR_PRG_ROM: usize = 0x8000;
 pub const ADDR_RESET_VECTOR: usize = 0xFFFC;
 
 impl Bus {
@@ -32,7 +33,7 @@ impl Bus {
 
         let program_bytes = program_bytes.map_err(|e| format!("Invalid hex: {}", e))?;
 
-        self.ram[0x8000..0x8000 + program_bytes.len()].copy_from_slice(&program_bytes);
+        self.ram[ADDR_PRG_ROM..ADDR_PRG_ROM + program_bytes.len()].copy_from_slice(&program_bytes);
 
         self.ram[ADDR_RESET_VECTOR] = 0x00;
         self.ram[ADDR_RESET_VECTOR + 1] = 0x80;
