@@ -1,5 +1,3 @@
-use std::cmp::max;
-
 use crate::bus::Bus;
 use crate::instructions::{AddrMode, Instruction, get_instruction};
 
@@ -79,8 +77,8 @@ impl CPU {
     }
 
     pub fn step(&mut self, bus: &mut Bus) {
-        if self.cycles != 0 {
-            self.cycles = max(self.cycles - 1, 0);
+        if self.cycles > 0 {
+            self.cycles = self.cycles.saturating_sub(1);
             return;
         }
 
@@ -102,6 +100,8 @@ impl CPU {
 
         // Add +1 cycle penalty only if a page is crossed and the opcode is a read
         self.cycles += (addr)(self, bus) & (operate)(self, bus);
+
+        self.cycles = self.cycles.saturating_sub(1);
     }
 
     // Interrupt request
@@ -950,12 +950,23 @@ impl CPU {
 }
 
 #[cfg(feature = "debug")]
+pub struct CpuState {
+    pub a: u8,
+    pub x: u8,
+    pub y: u8,
+    pub sp: u8,
+    pub pc: u16,
+    pub p: u8,
+    pub opcode: u8,
+    pub cycles: u8,
+}
+
+#[cfg(feature = "debug")]
 impl CPU {
-    pub fn print_state(&self) {
-        println!(
-            "A:{:02X} X:{:02X} Y:{:02X} SP:{:02X} PC:{:04X} P:{:08b}",
-            self.a, self.x, self.y, self.sp, self.pc, self.p
-        );
+    #[rustfmt::skip]
+    pub fn get_state(&self) -> CpuState {
+        let CPU { a, x, y, sp, pc, p, opcode, cycles, .. } = *self;
+        CpuState {a, x, y, sp, pc, p, opcode, cycles}
     }
 
     pub fn step_to_next_instruction(&mut self, bus: &mut Bus) {

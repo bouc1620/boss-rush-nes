@@ -4,7 +4,8 @@
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "rust-lang.rust-analyzer",
     "editor.tabSize": 4,
-    "editor.insertSpaces": true
+    "editor.insertSpaces": true,
+    "editor.inlayHints.enabled": "off"
   },
 
   // Organize imports automatically for Rust

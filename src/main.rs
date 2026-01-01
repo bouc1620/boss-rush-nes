@@ -1,11 +1,6 @@
 #[cfg(feature = "debug")]
 mod util;
 
-#[cfg(feature = "debug")]
-use crate::util::debug::disassemble;
-#[cfg(feature = "debug")]
-use std::io::stdin;
-
 pub mod bus;
 pub mod cpu;
 pub mod instructions;

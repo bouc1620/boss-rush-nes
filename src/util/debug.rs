@@ -1,12 +1,33 @@
-use std::collections::HashMap;
+use colored::Colorize;
+use std::collections::BTreeMap;
+use std::io::stdin;
 
 use crate::bus::Bus;
+use crate::cpu::CPU;
 use crate::instructions::{AddrMode, Instruction, get_instruction};
 
-pub fn disassemble(bus: &Bus, start: u16, end: u16) -> HashMap<u16, String> {
+pub fn debug(program: &str) {
+    let mut bus = Bus::default();
+    let mut cpu = CPU::default();
+
+    bus.load_program(program);
+    bus.set_reset_vector();
+
+    cpu.reset(&mut bus);
+
+    loop {
+        cpu.step_to_next_instruction(&mut bus);
+
+        let state = cpu.get_state();
+
+        let lines = disassemble(&bus, state.pc - 5, state.pc + 5);
+    }
+}
+
+fn disassemble(bus: &Bus, start: u16, end: u16) -> BTreeMap<u16, String> {
     let mut addr = start;
 
-    let mut lines: HashMap<u16, String> = HashMap::new();
+    let mut lines: BTreeMap<u16, String> = BTreeMap::new();
 
     while addr <= end {
         let line_addr = addr;

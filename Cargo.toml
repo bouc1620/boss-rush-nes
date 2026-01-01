@@ -10,3 +10,4 @@ license = "MIT"
 debug = []
 
 [dependencies]
+colored = "3.0.0"
