@@ -1,14 +1,16 @@
 pub struct Bus {
-    ram: [u8; 65 * 1024],
+    ram: [u8; 64 * 1024],
 }
 
 impl Default for Bus {
     fn default() -> Self {
         Self {
-            ram: [0; 65 * 1024],
+            ram: [0; 64 * 1024],
         }
     }
 }
+
+pub const ADDR_RESET_VECTOR: usize = 0xFFFC;
 
 impl Bus {
     pub fn read(&self, addr: u16, _readonly: bool) -> u8 {
@@ -22,18 +24,20 @@ impl Bus {
 
 #[cfg(feature = "debug")]
 impl Bus {
-    pub fn load_program(&mut self, program: &str) {
-        let program_bytes: Vec<u8> = program
+    pub fn load_program(&mut self, program: &str) -> Result<(), String> {
+        let program_bytes: Result<Vec<u8>, _> = program
             .split_whitespace()
-            .map(|byte| u8::from_str_radix(byte, 16).unwrap())
+            .map(|byte| u8::from_str_radix(byte, 16))
             .collect();
 
-        self.ram[0x8000..0x8000 + program_bytes.len()].copy_from_slice(&program_bytes);
-    }
+        let program_bytes = program_bytes.map_err(|e| format!("Invalid hex: {}", e))?;
 
-    pub fn set_reset_vector(&mut self) {
-        self.ram[0xFFFC] = 0x00;
-        self.ram[0xFFFC + 1] = 0x80;
+        self.ram[0x8000..0x8000 + program_bytes.len()].copy_from_slice(&program_bytes);
+
+        self.ram[ADDR_RESET_VECTOR] = 0x00;
+        self.ram[ADDR_RESET_VECTOR + 1] = 0x80;
+
+        Ok(())
     }
 
     pub fn print_ram(&self, start: u16, end: u16) {

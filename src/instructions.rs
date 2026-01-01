@@ -33,7 +33,7 @@ pub fn get_instruction(opcode: u8) -> Instruction {
     INSTRUCTIONS[row][col]
 }
 
-static INSTRUCTIONS: [[Instruction; 16]; 16] = [
+const INSTRUCTIONS: [[Instruction; 16]; 16] = [
     [
         Instruction {
             name: "brk",

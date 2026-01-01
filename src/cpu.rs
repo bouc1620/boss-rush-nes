@@ -1,4 +1,4 @@
-use crate::bus::Bus;
+use crate::bus::{ADDR_RESET_VECTOR, Bus};
 use crate::instructions::{AddrMode, Instruction, get_instruction};
 
 #[derive(Default)]
@@ -16,18 +16,26 @@ pub struct CPU {
     cycles: u8,    // Remaining clock cycles
 }
 
-const FLAG_CARRY: u8 = 0b000_0001;
-const FLAG_ZERO: u8 = 0b000_0010;
-const FLAG_INTERRUPT_DISABLE: u8 = 0b000_0100;
-const FLAG_DECIMAL: u8 = 0b000_1000;
-const FLAG_BREAK: u8 = 0b001_0000;
-const FLAG_UNUSED: u8 = 0b010_0000;
-const FLAG_OVERFLOW: u8 = 0b0100_0000;
-const FLAG_NEGATIVE: u8 = 0b1000_0000;
+pub struct StatusFlags;
+
+impl StatusFlags {
+    pub const CARRY: u8 = 0b000_0001;
+    pub const ZERO: u8 = 0b000_0010;
+    pub const INTERRUPT_DISABLE: u8 = 0b000_0100;
+    pub const DECIMAL: u8 = 0b000_1000;
+    pub const BREAK: u8 = 0b001_0000;
+    pub const UNUSED: u8 = 0b010_0000;
+    pub const OVERFLOW: u8 = 0b0100_0000;
+    pub const NEGATIVE: u8 = 0b1000_0000;
+}
 
 // This formula is derived from the truth table for a + b = result | overflow
 fn calc_overflow(a: u16, b: u16, result: u16) -> bool {
     !(a ^ b) & (a ^ result) & 0x0080 != 0
+}
+
+pub fn has_flag(p: u8, flag: u8) -> bool {
+    p & flag != 0
 }
 
 impl CPU {
@@ -36,7 +44,7 @@ impl CPU {
     }
 
     fn has_flag(&self, flag: u8) -> bool {
-        self.p & flag != 0
+        has_flag(self.p, flag)
     }
 
     fn set_flag(&mut self, flag: u8, value: bool) {
@@ -46,11 +54,11 @@ impl CPU {
             self.p &= !flag;
         }
 
-        self.p |= FLAG_UNUSED;
+        self.p |= StatusFlags::UNUSED;
     }
 
     fn fetch(&mut self, bus: &mut Bus) -> u8 {
-        if self.current_instruction().mode == AddrMode::Imp {
+        if matches!(self.current_instruction().mode, AddrMode::Imp) {
             self.a
         } else {
             bus.read(self.addr_abs, false)
@@ -58,7 +66,7 @@ impl CPU {
     }
 
     pub fn reset(&mut self, bus: &mut Bus) {
-        self.addr_abs = 0xFFFC;
+        self.addr_abs = ADDR_RESET_VECTOR as u16;
 
         let lo = bus.read(self.addr_abs, false) as u16;
         let hi = bus.read(self.addr_abs + 1, false) as u16;
@@ -68,7 +76,7 @@ impl CPU {
         self.x = 0;
         self.y = 0;
         self.sp = 0xFD;
-        self.p = FLAG_UNUSED;
+        self.p = StatusFlags::UNUSED;
 
         self.addr_abs = 0;
         self.addr_rel = 0;
@@ -79,15 +87,12 @@ impl CPU {
     pub fn step(&mut self, bus: &mut Bus) {
         if self.cycles > 0 {
             self.cycles = self.cycles.saturating_sub(1);
+
             return;
         }
 
         self.opcode = bus.read(self.pc, false);
-
-        println!("PC:     {:04X}", self.pc);
-        println!("OPCODE: {:02X}", self.opcode);
-
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         let Instruction {
             cycles,
@@ -106,20 +111,20 @@ impl CPU {
 
     // Interrupt request
     pub fn irq(&mut self, bus: &mut Bus) {
-        if self.has_flag(FLAG_INTERRUPT_DISABLE) {
+        if self.has_flag(StatusFlags::INTERRUPT_DISABLE) {
             return;
         }
 
         bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
         bus.write(0x0100 + self.sp as u16, self.pc as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
         bus.write(0x0100 + self.sp as u16, self.p);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
-        self.set_flag(FLAG_BREAK, false);
-        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+        self.set_flag(StatusFlags::BREAK, false);
+        self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
         let lo = bus.read(0xFFFE, false) as u16;
         let hi = bus.read(0xFFFF, false) as u16;
@@ -131,15 +136,15 @@ impl CPU {
     // Non-maskable interrupt
     pub fn nmi(&mut self, bus: &mut Bus) {
         bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
         bus.write(0x0100 + self.sp as u16, self.pc as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
         bus.write(0x0100 + self.sp as u16, self.p);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
-        self.set_flag(FLAG_BREAK, false);
-        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+        self.set_flag(StatusFlags::BREAK, false);
+        self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
         let lo = bus.read(0xFFFA, false) as u16;
         let hi = bus.read(0xFFFB, false) as u16;
@@ -160,7 +165,7 @@ impl CPU {
     // Immediate
     pub fn imm(&mut self, _bus: &mut Bus) -> u8 {
         self.addr_abs = self.pc;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         0
     }
@@ -168,23 +173,23 @@ impl CPU {
     // Zero page
     pub fn zp0(&mut self, bus: &mut Bus) -> u8 {
         self.addr_abs = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         0
     }
 
     // Zero page indexed with x
     pub fn zpx(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_abs = (bus.read(self.pc, false) + self.x) as u16;
-        self.pc += 1;
+        self.addr_abs = bus.read(self.pc, false).wrapping_add(self.x) as u16;
+        self.pc = self.pc.wrapping_add(1);
 
         0
     }
 
     // Zero page indexed with y
     pub fn zpy(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_abs = (bus.read(self.pc, false) + self.y) as u16;
-        self.pc += 1;
+        self.addr_abs = bus.read(self.pc, false).wrapping_add(self.y) as u16;
+        self.pc = self.pc.wrapping_add(1);
 
         0
     }
@@ -192,7 +197,7 @@ impl CPU {
     // Relative
     pub fn rel(&mut self, bus: &mut Bus) -> u8 {
         self.addr_rel = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         if self.addr_rel & 0x0080 != 0 {
             // If bit 7 isset, fill upper byte with 1s to preserve negative value
@@ -205,9 +210,9 @@ impl CPU {
     // Absolute
     pub fn abs(&mut self, bus: &mut Bus) -> u8 {
         let lo = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let hi = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         self.addr_abs = (hi << 8) | lo;
 
@@ -217,12 +222,12 @@ impl CPU {
     // Absolute indexed with x
     pub fn abx(&mut self, bus: &mut Bus) -> u8 {
         let lo = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let hi = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         self.addr_abs = (hi << 8) | lo;
-        self.addr_abs += self.x as u16;
+        self.addr_abs = self.addr_abs.wrapping_add(self.x as u16);
 
         if self.addr_abs & 0xFF00 != (hi << 8) {
             // Page boundary crossed (+1 cycle)
@@ -235,12 +240,12 @@ impl CPU {
     // Absolute indexed with y
     pub fn aby(&mut self, bus: &mut Bus) -> u8 {
         let lo = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let hi = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         self.addr_abs = (hi << 8) | lo;
-        self.addr_abs += self.y as u16;
+        self.addr_abs = self.addr_abs.wrapping_add(self.y as u16);
 
         if self.addr_abs & 0xFF00 != (hi << 8) {
             // Page boundary crossed (+1 cycle)
@@ -253,9 +258,9 @@ impl CPU {
     // Indirect
     pub fn ind(&mut self, bus: &mut Bus) -> u8 {
         let lo = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
         let hi = bus.read(self.pc, false) as u16;
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         let addr = (hi << 8) | lo;
 
@@ -265,8 +270,8 @@ impl CPU {
             self.addr_abs =
                 ((bus.read(addr & 0xFF00, false) as u16) << 8) | bus.read(addr, false) as u16;
         } else {
-            self.addr_abs =
-                ((bus.read(addr + 1, false) as u16) << 8) | bus.read(addr, false) as u16;
+            self.addr_abs = ((bus.read(addr.wrapping_add(1), false) as u16) << 8)
+                | bus.read(addr, false) as u16;
         }
 
         0
@@ -275,10 +280,10 @@ impl CPU {
     // Indirect indexed with x
     pub fn izx(&mut self, bus: &mut Bus) -> u8 {
         let addr = bus.read(self.pc, false);
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
-        let lo = bus.read((addr + self.x) as u16, false) as u16;
-        let hi = bus.read((addr + self.x + 1) as u16, false) as u16;
+        let lo = bus.read(addr.wrapping_add(self.x) as u16, false) as u16;
+        let hi = bus.read(addr.wrapping_add(self.x).wrapping_add(1) as u16, false) as u16;
 
         self.addr_abs = (hi << 8) | lo;
 
@@ -288,16 +293,16 @@ impl CPU {
     // Indirect indexed with y
     pub fn izy(&mut self, bus: &mut Bus) -> u8 {
         let addr = bus.read(self.pc, false);
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         let lo = bus.read(addr as u16, false) as u16;
-        let hi = bus.read((addr + 1) as u16, false) as u16;
+        let hi = bus.read(addr.wrapping_add(1) as u16, false) as u16;
 
         // Comparatively to izx, izy adds the index after dereferencing the pointer.
         // This instruction is better suited to iterate through data structures that span
         // accross multiple pages.
         self.addr_abs = (hi << 8) | lo;
-        self.addr_abs += self.y as u16;
+        self.addr_abs = self.addr_abs.wrapping_add(self.y as u16);
 
         if self.addr_abs & 0xFF00 != (hi << 8) {
             // Page boundary crossed (+1 cycle)
@@ -313,14 +318,18 @@ impl CPU {
     pub fn adc(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
-        let carry = if self.has_flag(FLAG_CARRY) { 1 } else { 0 };
+        let carry = if self.has_flag(StatusFlags::CARRY) {
+            1
+        } else {
+            0
+        };
         let result = self.a as u16 + fetched as u16 + carry;
 
-        self.set_flag(FLAG_CARRY, result & 0xFF00 != 0);
-        self.set_flag(FLAG_ZERO, result & 0x00FF == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x0080 == 0);
+        self.set_flag(StatusFlags::CARRY, result & 0xFF00 != 0);
+        self.set_flag(StatusFlags::ZERO, result & 0x00FF == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x0080 != 0);
         self.set_flag(
-            FLAG_OVERFLOW,
+            StatusFlags::OVERFLOW,
             calc_overflow(self.a as u16, fetched as u16, result),
         );
 
@@ -335,8 +344,8 @@ impl CPU {
 
         self.a &= fetched;
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         1
     }
@@ -345,9 +354,9 @@ impl CPU {
     pub fn asl(&mut self, bus: &mut Bus) -> u8 {
         let result = (self.fetch(bus) as u16) << 1;
 
-        self.set_flag(FLAG_CARRY, result & 0xFF00 != 0);
-        self.set_flag(FLAG_ZERO, result & 0x00FF == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x0080 == 0);
+        self.set_flag(StatusFlags::CARRY, result & 0xFF00 != 0);
+        self.set_flag(StatusFlags::ZERO, result & 0x00FF == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x0080 != 0);
 
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result as u8;
@@ -372,7 +381,7 @@ impl CPU {
 
     // Branch if carry clear
     pub fn bcc(&mut self, _bus: &mut Bus) -> u8 {
-        if !self.has_flag(FLAG_CARRY) {
+        if !self.has_flag(StatusFlags::CARRY) {
             self.branch_taken();
         }
 
@@ -381,7 +390,7 @@ impl CPU {
 
     // Branch if carry set
     pub fn bcs(&mut self, _bus: &mut Bus) -> u8 {
-        if self.has_flag(FLAG_CARRY) {
+        if self.has_flag(StatusFlags::CARRY) {
             self.branch_taken();
         }
 
@@ -390,7 +399,7 @@ impl CPU {
 
     // Branch if equal
     pub fn beq(&mut self, _bus: &mut Bus) -> u8 {
-        if !self.has_flag(FLAG_ZERO) {
+        if self.has_flag(StatusFlags::ZERO) {
             self.branch_taken();
         }
 
@@ -403,16 +412,16 @@ impl CPU {
 
         let result = self.a & fetched;
 
-        self.set_flag(FLAG_ZERO, result == 0);
-        self.set_flag(FLAG_OVERFLOW, result & 0x40 != 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, result == 0);
+        self.set_flag(StatusFlags::OVERFLOW, result & 0x40 != 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
 
         0
     }
 
     // Branch if minus
     pub fn bmi(&mut self, _bus: &mut Bus) -> u8 {
-        if self.has_flag(FLAG_NEGATIVE) {
+        if self.has_flag(StatusFlags::NEGATIVE) {
             self.branch_taken();
         }
 
@@ -421,7 +430,7 @@ impl CPU {
 
     // Branch if not equal
     pub fn bne(&mut self, _bus: &mut Bus) -> u8 {
-        if self.has_flag(FLAG_ZERO) {
+        if !self.has_flag(StatusFlags::ZERO) {
             self.branch_taken();
         }
 
@@ -430,7 +439,7 @@ impl CPU {
 
     // Branch if plus
     pub fn bpl(&mut self, _bus: &mut Bus) -> u8 {
-        if !self.has_flag(FLAG_NEGATIVE) {
+        if !self.has_flag(StatusFlags::NEGATIVE) {
             self.branch_taken();
         }
 
@@ -439,21 +448,21 @@ impl CPU {
 
     // Break (software IRQ)
     pub fn brk(&mut self, bus: &mut Bus) -> u8 {
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
-        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+        self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
         bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
         bus.write(0x0100 + self.sp as u16, self.pc as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
-        self.set_flag(FLAG_BREAK, true);
+        self.set_flag(StatusFlags::BREAK, true);
 
         bus.write(0x0100 + self.sp as u16, self.p);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
-        self.set_flag(FLAG_BREAK, false);
+        self.set_flag(StatusFlags::BREAK, false);
 
         let lo = bus.read(0xFFFE, false) as u16;
         let hi = bus.read(0xFFFF, false) as u16;
@@ -464,7 +473,7 @@ impl CPU {
 
     // Branch if overflow clear
     pub fn bvc(&mut self, _bus: &mut Bus) -> u8 {
-        if !self.has_flag(FLAG_OVERFLOW) {
+        if !self.has_flag(StatusFlags::OVERFLOW) {
             self.branch_taken();
         }
 
@@ -473,7 +482,7 @@ impl CPU {
 
     // Branch if overflow set
     pub fn bvs(&mut self, _bus: &mut Bus) -> u8 {
-        if self.has_flag(FLAG_OVERFLOW) {
+        if self.has_flag(StatusFlags::OVERFLOW) {
             self.branch_taken();
         }
 
@@ -482,52 +491,52 @@ impl CPU {
 
     // Clear carry
     pub fn clc(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_CARRY, false);
+        self.set_flag(StatusFlags::CARRY, false);
 
         0
     }
 
     // Clear decimal
     pub fn cld(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_DECIMAL, false);
+        self.set_flag(StatusFlags::DECIMAL, false);
 
         0
     }
 
     // Clear interrupt disable
     pub fn cli(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_INTERRUPT_DISABLE, false);
+        self.set_flag(StatusFlags::INTERRUPT_DISABLE, false);
 
         0
     }
 
     // Clear overflow
     pub fn clv(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_OVERFLOW, false);
+        self.set_flag(StatusFlags::OVERFLOW, false);
 
         0
     }
 
     fn set_compare_flags(&mut self, result: u16) {
-        self.set_flag(FLAG_CARRY, result & 0xFF00 == 0);
-        self.set_flag(FLAG_OVERFLOW, result == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x0080 != 0);
+        self.set_flag(StatusFlags::CARRY, result & 0xFF00 == 0);
+        self.set_flag(StatusFlags::ZERO, result & 0x00FF == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x0080 != 0);
     }
 
     // Compare a
     pub fn cmp(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
-        self.set_compare_flags(self.a as u16 - fetched as u16);
+        self.set_compare_flags((self.a as u16).wrapping_sub(fetched as u16));
 
-        0
+        1
     }
 
     // Compare x
     pub fn cpx(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
-        self.set_compare_flags(self.x as u16 - fetched as u16);
+        self.set_compare_flags((self.x as u16).wrapping_sub(fetched as u16));
 
         0
     }
@@ -536,39 +545,39 @@ impl CPU {
     pub fn cpy(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
-        self.set_compare_flags(self.y as u16 - fetched as u16);
+        self.set_compare_flags((self.y as u16).wrapping_sub(fetched as u16));
 
         0
     }
 
     // Decrement memory
     pub fn dec(&mut self, bus: &mut Bus) -> u8 {
-        let result = self.fetch(bus) - 1;
+        let result = self.fetch(bus).wrapping_sub(1);
 
         bus.write(self.addr_abs, result);
 
-        self.set_flag(FLAG_ZERO, result == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, result == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
 
         0
     }
 
     // Decrement x
     pub fn dex(&mut self, _bus: &mut Bus) -> u8 {
-        self.x -= 1;
+        self.x = self.x.wrapping_sub(1);
 
-        self.set_flag(FLAG_ZERO, self.x == 0);
-        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.x == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.x & 0x80 != 0);
 
         0
     }
 
     // Decrement y
     pub fn dey(&mut self, _bus: &mut Bus) -> u8 {
-        self.y -= 1;
+        self.y = self.y.wrapping_sub(1);
 
-        self.set_flag(FLAG_ZERO, self.y == 0);
-        self.set_flag(FLAG_NEGATIVE, self.y & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.y == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.y & 0x80 != 0);
 
         0
     }
@@ -579,40 +588,40 @@ impl CPU {
 
         self.a ^= fetched;
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         0
     }
 
     // Increment memory
     pub fn inc(&mut self, bus: &mut Bus) -> u8 {
-        let result = self.fetch(bus) + 1;
+        let result = self.fetch(bus).wrapping_add(1);
 
         bus.write(self.addr_abs, result);
 
-        self.set_flag(FLAG_ZERO, result == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, result == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
 
         0
     }
 
     // Increment x
     pub fn inx(&mut self, _bus: &mut Bus) -> u8 {
-        self.x += 1;
+        self.x = self.x.wrapping_add(1);
 
-        self.set_flag(FLAG_ZERO, self.x == 0);
-        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.x == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.x & 0x80 != 0);
 
         0
     }
 
     // Increment y
     pub fn iny(&mut self, _bus: &mut Bus) -> u8 {
-        self.y += 1;
+        self.y = self.y.wrapping_add(1);
 
-        self.set_flag(FLAG_ZERO, self.y == 0);
-        self.set_flag(FLAG_NEGATIVE, self.y & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.y == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.y & 0x80 != 0);
 
         0
     }
@@ -626,12 +635,12 @@ impl CPU {
 
     // Jump to subroutine
     pub fn jsr(&mut self, bus: &mut Bus) -> u8 {
-        self.pc -= 1;
+        self.pc = self.pc.wrapping_sub(1);
 
         bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
         bus.write(0x0100 + self.sp as u16, self.pc as u8);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
         self.pc = self.addr_abs;
 
@@ -644,8 +653,8 @@ impl CPU {
 
         self.a = fetched;
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         0
     }
@@ -656,8 +665,8 @@ impl CPU {
 
         self.x = fetched;
 
-        self.set_flag(FLAG_ZERO, self.x == 0);
-        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.x == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.x & 0x80 != 0);
 
         0
     }
@@ -668,8 +677,8 @@ impl CPU {
 
         self.y = fetched;
 
-        self.set_flag(FLAG_ZERO, self.y == 0);
-        self.set_flag(FLAG_NEGATIVE, self.y & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.y == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.y & 0x80 != 0);
 
         0
     }
@@ -680,9 +689,9 @@ impl CPU {
 
         let result = fetched >> 1;
 
-        self.set_flag(FLAG_CARRY, fetched & 0x01 != 0);
-        self.set_flag(FLAG_ZERO, result == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x80 != 0);
+        self.set_flag(StatusFlags::CARRY, fetched & 0x01 != 0);
+        self.set_flag(StatusFlags::ZERO, result == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
 
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result;
@@ -704,8 +713,8 @@ impl CPU {
 
         self.a |= fetched;
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         1
     }
@@ -713,36 +722,39 @@ impl CPU {
     // Push a
     pub fn pha(&mut self, bus: &mut Bus) -> u8 {
         bus.write(0x0100 + self.sp as u16, self.a);
-        self.sp -= 1;
+        self.sp = self.sp.wrapping_sub(1);
 
         0
     }
 
     // Push processor status
     pub fn php(&mut self, bus: &mut Bus) -> u8 {
-        bus.write(0x0100 + self.sp as u16, self.p | FLAG_BREAK | FLAG_UNUSED);
-        self.sp -= 1;
+        bus.write(
+            0x0100 + self.sp as u16,
+            self.p | StatusFlags::BREAK | StatusFlags::UNUSED,
+        );
+        self.sp = self.sp.wrapping_sub(1);
 
-        self.set_flag(FLAG_BREAK, false);
+        self.set_flag(StatusFlags::BREAK, false);
 
         0
     }
 
     // Pull a
     pub fn pla(&mut self, bus: &mut Bus) -> u8 {
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
 
         self.a = bus.read(0x0100 + self.sp as u16, false);
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         0
     }
 
     // Pull processor status
     pub fn plp(&mut self, bus: &mut Bus) -> u8 {
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
 
         let temp = bus.read(0x0100 + self.sp as u16, false);
 
@@ -755,12 +767,16 @@ impl CPU {
     pub fn rol(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
-        let carry = if self.has_flag(FLAG_CARRY) { 1 } else { 0 };
+        let carry = if self.has_flag(StatusFlags::CARRY) {
+            1
+        } else {
+            0
+        };
         let result = (fetched << 1) | carry;
 
-        self.set_flag(FLAG_CARRY, fetched & 0x80 != 0);
-        self.set_flag(FLAG_ZERO, result == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x80 != 0);
+        self.set_flag(StatusFlags::CARRY, fetched & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, result == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
 
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result;
@@ -775,12 +791,16 @@ impl CPU {
     pub fn ror(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
-        let carry = if self.has_flag(FLAG_CARRY) { 1 } else { 0 };
+        let carry = if self.has_flag(StatusFlags::CARRY) {
+            1
+        } else {
+            0
+        };
         let result = (carry << 7) | (fetched >> 1);
 
-        self.set_flag(FLAG_CARRY, fetched & 0x01 != 0);
-        self.set_flag(FLAG_ZERO, result == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x80 != 0);
+        self.set_flag(StatusFlags::CARRY, fetched & 0x01 != 0);
+        self.set_flag(StatusFlags::ZERO, result == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
 
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result;
@@ -793,15 +813,15 @@ impl CPU {
 
     // Return from interrupt
     pub fn rti(&mut self, bus: &mut Bus) -> u8 {
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
 
         let temp = bus.read(0x0100 + self.sp as u16, false);
 
         self.p |= temp & 0b1100_1111;
 
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
         let lo = bus.read(0x0100 + self.sp as u16, false) as u16;
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
         let hi = bus.read(0x0100 + self.sp as u16, false) as u16;
 
         self.pc = (hi << 8) | lo;
@@ -811,14 +831,14 @@ impl CPU {
 
     // Return from subroutine
     pub fn rts(&mut self, bus: &mut Bus) -> u8 {
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
         let lo = bus.read(0x0100 + self.sp as u16, false) as u16;
-        self.sp += 1;
+        self.sp = self.sp.wrapping_add(1);
         let hi = bus.read(0x0100 + self.sp as u16, false) as u16;
 
         self.pc = (hi << 8) | lo;
 
-        self.pc += 1;
+        self.pc = self.pc.wrapping_add(1);
 
         0
     }
@@ -828,14 +848,18 @@ impl CPU {
         let fetched = self.fetch(bus);
         let inverted = !fetched;
 
-        let carry = if self.has_flag(FLAG_CARRY) { 1 } else { 0 };
+        let carry = if self.has_flag(StatusFlags::CARRY) {
+            1
+        } else {
+            0
+        };
         let result = self.a as u16 + inverted as u16 + carry;
 
-        self.set_flag(FLAG_CARRY, result & 0xFF00 != 0);
-        self.set_flag(FLAG_ZERO, result & 0x00FF == 0);
-        self.set_flag(FLAG_NEGATIVE, result & 0x0080 == 0);
+        self.set_flag(StatusFlags::CARRY, result & 0xFF00 != 0);
+        self.set_flag(StatusFlags::ZERO, result & 0x00FF == 0);
+        self.set_flag(StatusFlags::NEGATIVE, result & 0x0080 != 0);
         self.set_flag(
-            FLAG_OVERFLOW,
+            StatusFlags::OVERFLOW,
             calc_overflow(self.a as u16, inverted as u16, result),
         );
 
@@ -846,21 +870,21 @@ impl CPU {
 
     // Set carry
     pub fn sec(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_CARRY, true);
+        self.set_flag(StatusFlags::CARRY, true);
 
         0
     }
 
     // Set decimal
     pub fn sed(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_DECIMAL, true);
+        self.set_flag(StatusFlags::DECIMAL, true);
 
         0
     }
 
     // Set interrupt disable
     pub fn sei(&mut self, _bus: &mut Bus) -> u8 {
-        self.set_flag(FLAG_INTERRUPT_DISABLE, true);
+        self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
         0
     }
@@ -890,8 +914,8 @@ impl CPU {
     pub fn tax(&mut self, _bus: &mut Bus) -> u8 {
         self.x = self.a;
 
-        self.set_flag(FLAG_ZERO, self.x == 0);
-        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.x == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.x & 0x80 != 0);
 
         0
     }
@@ -900,8 +924,8 @@ impl CPU {
     pub fn tay(&mut self, _bus: &mut Bus) -> u8 {
         self.y = self.a;
 
-        self.set_flag(FLAG_ZERO, self.y == 0);
-        self.set_flag(FLAG_NEGATIVE, self.y & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.y == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.y & 0x80 != 0);
 
         0
     }
@@ -910,8 +934,8 @@ impl CPU {
     pub fn tsx(&mut self, _bus: &mut Bus) -> u8 {
         self.x = self.sp;
 
-        self.set_flag(FLAG_ZERO, self.x == 0);
-        self.set_flag(FLAG_NEGATIVE, self.x & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.x == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.x & 0x80 != 0);
 
         0
     }
@@ -920,8 +944,8 @@ impl CPU {
     pub fn txa(&mut self, _bus: &mut Bus) -> u8 {
         self.a = self.x;
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         0
     }
@@ -937,8 +961,8 @@ impl CPU {
     pub fn tya(&mut self, _bus: &mut Bus) -> u8 {
         self.a = self.y;
 
-        self.set_flag(FLAG_ZERO, self.a == 0);
-        self.set_flag(FLAG_NEGATIVE, self.a & 0x80 != 0);
+        self.set_flag(StatusFlags::ZERO, self.a == 0);
+        self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
 
         0
     }
