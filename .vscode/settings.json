@@ -20,6 +20,7 @@
   "rust-analyzer.diagnostics.disabled": ["unlinked-file"],
   "rust-analyzer.inlayHints.parameterHints.enable": false,
   "rust-analyzer.inlayHints.typeHints.enable": false,
+  "rust-analyzer.lens.implementations.enable": false,
 
   "rust-analyzer.cargo.features": ["debug"]
 }

@@ -340,7 +340,7 @@ impl CPU {
         1
     }
 
-    // Bitwise AND
+    // Bitwise and
     pub fn and(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
@@ -584,7 +584,7 @@ impl CPU {
         0
     }
 
-    // Bitwise exclusive OR
+    // Bitwise exclusive or
     pub fn eor(&mut self, bus: &mut Bus) -> u8 {
         let fetched = self.fetch(bus);
 
