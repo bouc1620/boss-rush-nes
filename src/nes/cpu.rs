@@ -1,8 +1,8 @@
-use crate::bus::{ADDR_RESET_VECTOR, Bus};
-use crate::instructions::{AddrMode, Instruction, get_instruction};
+use super::bus::{ADDR_RESET_VECTOR, Bus};
+use super::instructions::{AddrMode, Instruction, get_instruction};
 
 #[derive(Default)]
-pub struct CPU {
+pub struct Cpu {
     a: u8,
     x: u8,
     y: u8,
@@ -38,7 +38,7 @@ pub fn has_flag(p: u8, flag: u8) -> bool {
     p & flag != 0
 }
 
-impl CPU {
+impl Cpu {
     fn current_instruction(&self) -> Instruction {
         get_instruction(self.opcode)
     }
@@ -61,15 +61,15 @@ impl CPU {
         if matches!(self.current_instruction().mode, AddrMode::Imp) {
             self.a
         } else {
-            bus.read(self.addr_abs, false)
+            bus.cpu_read(self.addr_abs, false)
         }
     }
 
     pub fn reset(&mut self, bus: &mut Bus) {
         self.addr_abs = ADDR_RESET_VECTOR as u16;
 
-        let lo = bus.read(self.addr_abs, false) as u16;
-        let hi = bus.read(self.addr_abs + 1, false) as u16;
+        let lo = bus.cpu_read(self.addr_abs, false) as u16;
+        let hi = bus.cpu_read(self.addr_abs + 1, false) as u16;
         self.pc = (hi << 8) | lo;
 
         self.a = 0;
@@ -91,7 +91,7 @@ impl CPU {
             return;
         }
 
-        self.opcode = bus.read(self.pc, false);
+        self.opcode = bus.cpu_read(self.pc, false);
         self.pc = self.pc.wrapping_add(1);
 
         let Instruction {
@@ -115,19 +115,19 @@ impl CPU {
             return;
         }
 
-        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, self.pc as u8);
         self.sp = self.sp.wrapping_sub(1);
 
-        bus.write(0x0100 + self.sp as u16, self.p);
+        bus.cpu_write(0x0100 + self.sp as u16, self.p);
         self.sp = self.sp.wrapping_sub(1);
 
         self.set_flag(StatusFlags::BREAK, false);
         self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
-        let lo = bus.read(0xFFFE, false) as u16;
-        let hi = bus.read(0xFFFF, false) as u16;
+        let lo = bus.cpu_read(0xFFFE, false) as u16;
+        let hi = bus.cpu_read(0xFFFF, false) as u16;
         self.pc = (hi << 8) | lo;
 
         self.cycles = 7;
@@ -135,26 +135,26 @@ impl CPU {
 
     // Non-maskable interrupt
     pub fn nmi(&mut self, bus: &mut Bus) {
-        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, self.pc as u8);
         self.sp = self.sp.wrapping_sub(1);
 
-        bus.write(0x0100 + self.sp as u16, self.p);
+        bus.cpu_write(0x0100 + self.sp as u16, self.p);
         self.sp = self.sp.wrapping_sub(1);
 
         self.set_flag(StatusFlags::BREAK, false);
         self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
-        let lo = bus.read(0xFFFA, false) as u16;
-        let hi = bus.read(0xFFFB, false) as u16;
+        let lo = bus.cpu_read(0xFFFA, false) as u16;
+        let hi = bus.cpu_read(0xFFFB, false) as u16;
         self.pc = (hi << 8) | lo;
 
         self.cycles = 8;
     }
 }
 
-impl CPU {
+impl Cpu {
     // Addressing modes
 
     // Implicit
@@ -172,7 +172,7 @@ impl CPU {
 
     // Zero page
     pub fn zp0(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_abs = bus.read(self.pc, false) as u16;
+        self.addr_abs = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         0
@@ -180,7 +180,7 @@ impl CPU {
 
     // Zero page indexed with x
     pub fn zpx(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_abs = bus.read(self.pc, false).wrapping_add(self.x) as u16;
+        self.addr_abs = bus.cpu_read(self.pc, false).wrapping_add(self.x) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         0
@@ -188,7 +188,7 @@ impl CPU {
 
     // Zero page indexed with y
     pub fn zpy(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_abs = bus.read(self.pc, false).wrapping_add(self.y) as u16;
+        self.addr_abs = bus.cpu_read(self.pc, false).wrapping_add(self.y) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         0
@@ -196,7 +196,7 @@ impl CPU {
 
     // Relative
     pub fn rel(&mut self, bus: &mut Bus) -> u8 {
-        self.addr_rel = bus.read(self.pc, false) as u16;
+        self.addr_rel = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         if self.addr_rel & 0x0080 != 0 {
@@ -209,9 +209,9 @@ impl CPU {
 
     // Absolute
     pub fn abs(&mut self, bus: &mut Bus) -> u8 {
-        let lo = bus.read(self.pc, false) as u16;
+        let lo = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
-        let hi = bus.read(self.pc, false) as u16;
+        let hi = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         self.addr_abs = (hi << 8) | lo;
@@ -221,9 +221,9 @@ impl CPU {
 
     // Absolute indexed with x
     pub fn abx(&mut self, bus: &mut Bus) -> u8 {
-        let lo = bus.read(self.pc, false) as u16;
+        let lo = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
-        let hi = bus.read(self.pc, false) as u16;
+        let hi = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         self.addr_abs = (hi << 8) | lo;
@@ -239,9 +239,9 @@ impl CPU {
 
     // Absolute indexed with y
     pub fn aby(&mut self, bus: &mut Bus) -> u8 {
-        let lo = bus.read(self.pc, false) as u16;
+        let lo = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
-        let hi = bus.read(self.pc, false) as u16;
+        let hi = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         self.addr_abs = (hi << 8) | lo;
@@ -257,9 +257,9 @@ impl CPU {
 
     // Indirect
     pub fn ind(&mut self, bus: &mut Bus) -> u8 {
-        let lo = bus.read(self.pc, false) as u16;
+        let lo = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
-        let hi = bus.read(self.pc, false) as u16;
+        let hi = bus.cpu_read(self.pc, false) as u16;
         self.pc = self.pc.wrapping_add(1);
 
         let addr = (hi << 8) | lo;
@@ -267,11 +267,11 @@ impl CPU {
         if lo == 0x00FF {
             // Simulates a 6502 hardware bug: addr treated as 2 separate bytes, carry is not propagated to MSB.
             // Example: JMP ($10FF) reads LSB from $10FF and MSB from $1000 (not $1100).
-            self.addr_abs =
-                ((bus.read(addr & 0xFF00, false) as u16) << 8) | bus.read(addr, false) as u16;
+            self.addr_abs = ((bus.cpu_read(addr & 0xFF00, false) as u16) << 8)
+                | bus.cpu_read(addr, false) as u16;
         } else {
-            self.addr_abs = ((bus.read(addr.wrapping_add(1), false) as u16) << 8)
-                | bus.read(addr, false) as u16;
+            self.addr_abs = ((bus.cpu_read(addr.wrapping_add(1), false) as u16) << 8)
+                | bus.cpu_read(addr, false) as u16;
         }
 
         0
@@ -279,11 +279,11 @@ impl CPU {
 
     // Indirect indexed with x
     pub fn izx(&mut self, bus: &mut Bus) -> u8 {
-        let addr = bus.read(self.pc, false);
+        let addr = bus.cpu_read(self.pc, false);
         self.pc = self.pc.wrapping_add(1);
 
-        let lo = bus.read(addr.wrapping_add(self.x) as u16, false) as u16;
-        let hi = bus.read(addr.wrapping_add(self.x).wrapping_add(1) as u16, false) as u16;
+        let lo = bus.cpu_read(addr.wrapping_add(self.x) as u16, false) as u16;
+        let hi = bus.cpu_read(addr.wrapping_add(self.x).wrapping_add(1) as u16, false) as u16;
 
         self.addr_abs = (hi << 8) | lo;
 
@@ -292,11 +292,11 @@ impl CPU {
 
     // Indirect indexed with y
     pub fn izy(&mut self, bus: &mut Bus) -> u8 {
-        let addr = bus.read(self.pc, false);
+        let addr = bus.cpu_read(self.pc, false);
         self.pc = self.pc.wrapping_add(1);
 
-        let lo = bus.read(addr as u16, false) as u16;
-        let hi = bus.read(addr.wrapping_add(1) as u16, false) as u16;
+        let lo = bus.cpu_read(addr as u16, false) as u16;
+        let hi = bus.cpu_read(addr.wrapping_add(1) as u16, false) as u16;
 
         // Comparatively to izx, izy adds the index after dereferencing the pointer.
         // This instruction is better suited to iterate through data structures that span
@@ -363,7 +363,7 @@ impl CPU {
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result as u8;
         } else {
-            bus.write(self.addr_abs, result as u8);
+            bus.cpu_write(self.addr_abs, result as u8);
         }
 
         0
@@ -454,20 +454,20 @@ impl CPU {
 
         self.set_flag(StatusFlags::INTERRUPT_DISABLE, true);
 
-        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, self.pc as u8);
         self.sp = self.sp.wrapping_sub(1);
 
         self.set_flag(StatusFlags::BREAK, true);
 
-        bus.write(0x0100 + self.sp as u16, self.p);
+        bus.cpu_write(0x0100 + self.sp as u16, self.p);
         self.sp = self.sp.wrapping_sub(1);
 
         self.set_flag(StatusFlags::BREAK, false);
 
-        let lo = bus.read(0xFFFE, false) as u16;
-        let hi = bus.read(0xFFFF, false) as u16;
+        let lo = bus.cpu_read(0xFFFE, false) as u16;
+        let hi = bus.cpu_read(0xFFFF, false) as u16;
         self.pc = (hi << 8) | lo;
 
         0
@@ -556,7 +556,7 @@ impl CPU {
     pub fn dec(&mut self, bus: &mut Bus) -> u8 {
         let result = self.fetch(bus).wrapping_sub(1);
 
-        bus.write(self.addr_abs, result);
+        bus.cpu_write(self.addr_abs, result);
 
         self.set_flag(StatusFlags::ZERO, result == 0);
         self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
@@ -600,7 +600,7 @@ impl CPU {
     pub fn inc(&mut self, bus: &mut Bus) -> u8 {
         let result = self.fetch(bus).wrapping_add(1);
 
-        bus.write(self.addr_abs, result);
+        bus.cpu_write(self.addr_abs, result);
 
         self.set_flag(StatusFlags::ZERO, result == 0);
         self.set_flag(StatusFlags::NEGATIVE, result & 0x80 != 0);
@@ -639,9 +639,9 @@ impl CPU {
     pub fn jsr(&mut self, bus: &mut Bus) -> u8 {
         self.pc = self.pc.wrapping_sub(1);
 
-        bus.write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, (self.pc >> 8) as u8);
         self.sp = self.sp.wrapping_sub(1);
-        bus.write(0x0100 + self.sp as u16, self.pc as u8);
+        bus.cpu_write(0x0100 + self.sp as u16, self.pc as u8);
         self.sp = self.sp.wrapping_sub(1);
 
         self.pc = self.addr_abs;
@@ -698,7 +698,7 @@ impl CPU {
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result;
         } else {
-            bus.write(self.addr_abs, result);
+            bus.cpu_write(self.addr_abs, result);
         }
 
         0
@@ -723,7 +723,7 @@ impl CPU {
 
     // Push a
     pub fn pha(&mut self, bus: &mut Bus) -> u8 {
-        bus.write(0x0100 + self.sp as u16, self.a);
+        bus.cpu_write(0x0100 + self.sp as u16, self.a);
         self.sp = self.sp.wrapping_sub(1);
 
         0
@@ -731,7 +731,7 @@ impl CPU {
 
     // Push processor status
     pub fn php(&mut self, bus: &mut Bus) -> u8 {
-        bus.write(
+        bus.cpu_write(
             0x0100 + self.sp as u16,
             self.p | StatusFlags::BREAK | StatusFlags::UNUSED,
         );
@@ -746,7 +746,7 @@ impl CPU {
     pub fn pla(&mut self, bus: &mut Bus) -> u8 {
         self.sp = self.sp.wrapping_add(1);
 
-        self.a = bus.read(0x0100 + self.sp as u16, false);
+        self.a = bus.cpu_read(0x0100 + self.sp as u16, false);
 
         self.set_flag(StatusFlags::ZERO, self.a == 0);
         self.set_flag(StatusFlags::NEGATIVE, self.a & 0x80 != 0);
@@ -758,7 +758,7 @@ impl CPU {
     pub fn plp(&mut self, bus: &mut Bus) -> u8 {
         self.sp = self.sp.wrapping_add(1);
 
-        let temp = bus.read(0x0100 + self.sp as u16, false);
+        let temp = bus.cpu_read(0x0100 + self.sp as u16, false);
 
         self.p |= temp & 0b1100_1111;
 
@@ -783,7 +783,7 @@ impl CPU {
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result;
         } else {
-            bus.write(self.addr_abs, result);
+            bus.cpu_write(self.addr_abs, result);
         }
 
         0
@@ -807,7 +807,7 @@ impl CPU {
         if self.current_instruction().mode == AddrMode::Imp {
             self.a = result;
         } else {
-            bus.write(self.addr_abs, result);
+            bus.cpu_write(self.addr_abs, result);
         }
 
         0
@@ -817,14 +817,14 @@ impl CPU {
     pub fn rti(&mut self, bus: &mut Bus) -> u8 {
         self.sp = self.sp.wrapping_add(1);
 
-        let temp = bus.read(0x0100 + self.sp as u16, false);
+        let temp = bus.cpu_read(0x0100 + self.sp as u16, false);
 
         self.p |= temp & 0b1100_1111;
 
         self.sp = self.sp.wrapping_add(1);
-        let lo = bus.read(0x0100 + self.sp as u16, false) as u16;
+        let lo = bus.cpu_read(0x0100 + self.sp as u16, false) as u16;
         self.sp = self.sp.wrapping_add(1);
-        let hi = bus.read(0x0100 + self.sp as u16, false) as u16;
+        let hi = bus.cpu_read(0x0100 + self.sp as u16, false) as u16;
 
         self.pc = (hi << 8) | lo;
 
@@ -834,9 +834,9 @@ impl CPU {
     // Return from subroutine
     pub fn rts(&mut self, bus: &mut Bus) -> u8 {
         self.sp = self.sp.wrapping_add(1);
-        let lo = bus.read(0x0100 + self.sp as u16, false) as u16;
+        let lo = bus.cpu_read(0x0100 + self.sp as u16, false) as u16;
         self.sp = self.sp.wrapping_add(1);
-        let hi = bus.read(0x0100 + self.sp as u16, false) as u16;
+        let hi = bus.cpu_read(0x0100 + self.sp as u16, false) as u16;
 
         self.pc = (hi << 8) | lo;
 
@@ -895,21 +895,21 @@ impl CPU {
 
     // Store a
     pub fn sta(&mut self, bus: &mut Bus) -> u8 {
-        bus.write(self.addr_abs, self.a);
+        bus.cpu_write(self.addr_abs, self.a);
 
         0
     }
 
     // Store x
     pub fn stx(&mut self, bus: &mut Bus) -> u8 {
-        bus.write(self.addr_abs, self.x);
+        bus.cpu_write(self.addr_abs, self.x);
 
         0
     }
 
     // Store y
     pub fn sty(&mut self, bus: &mut Bus) -> u8 {
-        bus.write(self.addr_abs, self.y);
+        bus.cpu_write(self.addr_abs, self.y);
 
         0
     }
@@ -990,10 +990,10 @@ pub struct CpuState {
 }
 
 #[cfg(feature = "debug")]
-impl CPU {
+impl Cpu {
     #[rustfmt::skip]
     pub fn get_state(&self) -> CpuState {
-        let CPU { a, x, y, sp, pc, p, opcode, cycles, .. } = *self;
+        let Cpu { a, x, y, sp, pc, p, opcode, cycles, .. } = *self;
         CpuState {a, x, y, sp, pc, p, opcode, cycles}
     }
 

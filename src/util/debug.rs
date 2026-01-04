@@ -2,16 +2,17 @@ use colored::Colorize;
 use std::collections::BTreeMap;
 use std::io::{Write, stdin, stdout};
 
-use crate::bus::{ADDR_PRG_ROM, Bus};
-use crate::cpu::{CPU, CpuState, StatusFlags, has_flag};
-use crate::instructions::{AddrMode, Instruction, get_instruction};
+use crate::nes::{
+    bus::ADDR_PRG_ROM, bus::Bus, cpu::Cpu, cpu::CpuState, cpu::StatusFlags, cpu::has_flag,
+    instructions::AddrMode, instructions::Instruction, instructions::get_instruction,
+};
 
 // Small program that multiplies 10 by 3 and stores the result at address 0x0002:
 // "A2 0A 8E 00 00 A2 03 8E 01 00 AC 00 00 A9 00 18 6D 01 00 88 D0 FA 8D 02 00 EA EA EA"
 
 pub fn debug(program: &str) {
-    let mut bus = Bus::default();
-    let mut cpu = CPU::default();
+    let mut bus = Bus::new();
+    let mut cpu = Cpu::default();
 
     if let Err(e) = bus.load_program(program) {
         println!("Failed to load program: {}", e);
@@ -58,13 +59,13 @@ pub fn debug(program: &str) {
 }
 
 fn print_cpu_status(processor_status: u8) {
-    let get_formatted_flag = |status: u8, flag: u8, flag_char: char| -> String {
+    fn get_formatted_flag(status: u8, flag: u8, flag_char: char) -> String {
         if has_flag(status, flag) {
             flag_char.to_string().green().to_string()
         } else {
             flag_char.to_string().red().to_string()
         }
-    };
+    }
 
     println!(
         "{} {} {} {} {} {} {} {}",
@@ -129,7 +130,7 @@ fn disassemble(bus: &Bus, start: u16, end: u16) -> BTreeMap<u16, String> {
 
         let mut instruction_str = format!("${:04X}: ", addr);
 
-        let opcode = bus.read(addr, true);
+        let opcode = bus.cpu_read(addr, true);
         addr += 1;
 
         let Instruction { name, mode, .. } = get_instruction(opcode);
@@ -141,31 +142,31 @@ fn disassemble(bus: &Bus, start: u16, end: u16) -> BTreeMap<u16, String> {
                 instruction_str = format!("{}{}", instruction_str, "{IMP}");
             }
             AddrMode::Imm => {
-                let value = bus.read(addr, true);
+                let value = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!("{}#${:02X} {}", instruction_str, value, "{IMM}");
             }
             AddrMode::Zp0 => {
-                let lo = bus.read(addr, true);
+                let lo = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!("{}${:02X} {}", instruction_str, lo, "{ZP0}");
             }
             AddrMode::Zpx => {
-                let lo = bus.read(addr, true);
+                let lo = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!("{}${:02X}, X {}", instruction_str, lo, "{ZPX}");
             }
             AddrMode::Zpy => {
-                let lo = bus.read(addr, true);
+                let lo = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!("{}${:02X}, Y {}", instruction_str, lo, "{ZPY}");
             }
             AddrMode::Rel => {
-                let value = bus.read(addr, true);
+                let value = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!(
@@ -177,48 +178,48 @@ fn disassemble(bus: &Bus, start: u16, end: u16) -> BTreeMap<u16, String> {
                 );
             }
             AddrMode::Abs => {
-                let lo = bus.read(addr, true) as u16;
+                let lo = bus.cpu_read(addr, true) as u16;
                 addr += 1;
-                let hi = bus.read(addr, true) as u16;
+                let hi = bus.cpu_read(addr, true) as u16;
                 addr += 1;
 
                 instruction_str = format!("{}${:04X} {}", instruction_str, (hi << 8) | lo, "{ABS}");
             }
             AddrMode::Abx => {
-                let lo = bus.read(addr, true) as u16;
+                let lo = bus.cpu_read(addr, true) as u16;
                 addr += 1;
-                let hi = bus.read(addr, true) as u16;
+                let hi = bus.cpu_read(addr, true) as u16;
                 addr += 1;
 
                 instruction_str =
                     format!("{}${:04X}, X {}", instruction_str, (hi << 8) | lo, "{ABX}");
             }
             AddrMode::Aby => {
-                let lo = bus.read(addr, true) as u16;
+                let lo = bus.cpu_read(addr, true) as u16;
                 addr += 1;
-                let hi = bus.read(addr, true) as u16;
+                let hi = bus.cpu_read(addr, true) as u16;
                 addr += 1;
 
                 instruction_str =
                     format!("{}${:04X}, Y {}", instruction_str, (hi << 8) | lo, "{ABY}");
             }
             AddrMode::Ind => {
-                let lo = bus.read(addr, true) as u16;
+                let lo = bus.cpu_read(addr, true) as u16;
                 addr += 1;
-                let hi = bus.read(addr, true) as u16;
+                let hi = bus.cpu_read(addr, true) as u16;
                 addr += 1;
 
                 instruction_str =
                     format!("{} (${:04X}) {}", instruction_str, (hi << 8) | lo, "{IND}");
             }
             AddrMode::Izx => {
-                let lo = bus.read(addr, true);
+                let lo = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!("{}(${:02X}, X), {}", instruction_str, lo, "{IZX}");
             }
             AddrMode::Izy => {
-                let lo = bus.read(addr, true);
+                let lo = bus.cpu_read(addr, true);
                 addr += 1;
 
                 instruction_str = format!("{}(${:02X}), Y {}", instruction_str, lo, "{IZY}");
