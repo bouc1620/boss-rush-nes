@@ -1,8 +1,11 @@
 use bus::Bus;
+use cartridge::Cartridge;
 use cpu::Cpu;
 use ppu::Ppu;
+use std::cell::RefCell;
 use std::io;
 use std::path::Path;
+use std::rc::Rc;
 
 pub mod bus;
 pub mod cartridge;
@@ -12,24 +15,33 @@ pub mod ppu;
 
 pub struct Nes {
     pub cpu: Cpu,
-    pub ppu: Ppu,
     pub bus: Bus,
+    ppu: Rc<RefCell<Ppu>>,
+    cartridge: Rc<RefCell<Cartridge>>,
 }
 
 impl Nes {
     pub fn from_rom(path: impl AsRef<Path>) -> Result<Self, io::Error> {
+        let cartridge = Rc::new(RefCell::new(Cartridge::from_rom(path)?));
+        let ppu = Rc::new(RefCell::new(Ppu::default()));
+
         Ok(Self {
             cpu: Cpu::default(),
-            ppu: Ppu::default(),
-            bus: Bus::from_rom(path)?,
+            bus: Bus::new(Rc::clone(&ppu), Rc::clone(&cartridge)),
+            ppu,
+            cartridge,
         })
     }
 
     pub fn from_program(program: &str) -> Result<Self, String> {
+        let cartridge = Rc::new(RefCell::new(Cartridge::from_program(program)?));
+        let ppu = Rc::new(RefCell::new(Ppu::default()));
+
         Ok(Self {
             cpu: Cpu::default(),
-            ppu: Ppu::default(),
-            bus: Bus::from_program(program)?,
+            bus: Bus::new(Rc::clone(&ppu), Rc::clone(&cartridge)),
+            ppu,
+            cartridge,
         })
     }
 

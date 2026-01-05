@@ -1,31 +1,24 @@
 use super::cartridge::Cartridge;
-use std::io;
-use std::path::Path;
+use super::ppu::Ppu;
+use std::cell::RefCell;
+use std::rc::Rc;
 
 pub const ADDR_PRG_ROM: usize = 0x8000;
 pub const ADDR_RESET_VECTOR: usize = 0xFFFC;
 
 pub struct Bus {
     ram: [u8; 64 * 1024],
-    cartridge: Cartridge,
-    ppu_registers: [u8; 8],
+    ppu: Rc<RefCell<Ppu>>,
+    cartridge: Rc<RefCell<Cartridge>>,
 }
 
 impl Bus {
-    pub fn from_rom(path: impl AsRef<Path>) -> Result<Self, io::Error> {
-        Ok(Self {
+    pub fn new(ppu: Rc<RefCell<Ppu>>, cartridge: Rc<RefCell<Cartridge>>) -> Self {
+        Self {
             ram: [0; 64 * 1024],
-            cartridge: Cartridge::from_rom(path)?,
-            ppu_registers: [0; 8],
-        })
-    }
-
-    pub fn from_program(program: &str) -> Result<Self, String> {
-        Ok(Self {
-            ram: [0; 64 * 1024],
-            cartridge: Cartridge::from_program(program)?,
-            ppu_registers: [0; 8],
-        })
+            ppu,
+            cartridge,
+        }
     }
 }
 
@@ -38,13 +31,14 @@ impl Bus {
         } else if addr < 0x4000 {
             // PPU registers: $2000 - $3FFF (mirrored every 8 bytes)
             let addr = 0x2000 + (addr & 0x0007);
-            self.ppu_registers[addr as usize]
+            self.ppu.borrow_mut().registers[addr as usize]
         } else if addr < 0x4017 {
             // APU / IO: $4000 - $4017
             self.ram[addr as usize]
         } else if addr >= ADDR_PRG_ROM as u16 {
             // Cartridge PRG-ROM: 0x8000 - 0xFFFF
-            self.cartridge.cpu_read(addr as usize)
+            let offset = (addr as usize) - ADDR_PRG_ROM;
+            self.cartridge.borrow().read(offset)
         } else {
             0
         }

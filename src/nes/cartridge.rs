@@ -11,11 +11,11 @@ pub enum Mirroring {
 }
 
 pub struct Cartridge {
-    pub prg_rom: Vec<u8>,
-    pub chr_rom: Vec<u8>,
-    pub mapper: u8,
-    pub mirroring: Mirroring,
-    pub prg_ram_size: u8,
+    prg_rom: Vec<u8>,
+    chr_rom: Vec<u8>,
+    mapper: u8,
+    mirroring: Mirroring,
+    prg_ram_size: u8,
 }
 
 fn get_mirroring(flag6: u8) -> Mirroring {
@@ -99,10 +99,9 @@ impl Cartridge {
         })
     }
 
-    pub fn cpu_read(&self, addr: usize) -> u8 {
-        let offset = addr - ADDR_PRG_ROM;
-        if offset < self.prg_rom.len() {
-            self.prg_rom[offset]
+    pub fn read(&self, addr: usize) -> u8 {
+        if addr < self.prg_rom.len() {
+            self.prg_rom[addr]
         } else {
             0
         }
