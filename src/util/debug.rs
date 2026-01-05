@@ -1,37 +1,28 @@
+use crate::nes::{
+    Nes, bus::ADDR_PRG_ROM, bus::Bus, cpu::Cpu, cpu::CpuState, cpu::StatusFlags, cpu::has_flag,
+    instructions::AddrMode, instructions::Instruction, instructions::get_instruction,
+};
 use colored::Colorize;
 use std::collections::BTreeMap;
 use std::io::{Write, stdin, stdout};
 
-use crate::nes::{
-    bus::ADDR_PRG_ROM, bus::Bus, cpu::Cpu, cpu::CpuState, cpu::StatusFlags, cpu::has_flag,
-    instructions::AddrMode, instructions::Instruction, instructions::get_instruction,
-};
-
 // Small program that multiplies 10 by 3 and stores the result at address 0x0002:
 // "A2 0A 8E 00 00 A2 03 8E 01 00 AC 00 00 A9 00 18 6D 01 00 88 D0 FA 8D 02 00 EA EA EA"
 
-pub fn debug(program: &str) {
-    let mut bus = Bus::new();
-    let mut cpu = Cpu::default();
+pub fn debug_cpu(program: &str) -> Result<(), String> {
+    let mut nes = Nes::from_program(program)?;
 
-    if let Err(e) = bus.load_program(program) {
-        println!("Failed to load program: {}", e);
-
-        return;
-    }
-
-    cpu.reset(&mut bus);
-    // complete the reset cpu cycles
-    cpu.step_to_next_instruction(&mut bus);
+    nes.reset();
+    nes.cpu.step_to_next_instruction(&mut nes.bus);
 
     let lines = disassemble(
-        &bus,
+        &nes.bus,
         ADDR_PRG_ROM as u16,
         (ADDR_PRG_ROM + program.len()) as u16,
     );
 
     loop {
-        let state = cpu.get_state();
+        let state = nes.cpu.get_state();
 
         print!("\x1B[2J\x1B[1;1H");
         stdout().flush().unwrap();
@@ -41,21 +32,25 @@ pub fn debug(program: &str) {
         println!();
         print_cpu_registers(&state);
 
-        bus.print_ram(0x0000, 0x001F);
-        bus.print_ram(ADDR_PRG_ROM as u16, 0x801F);
+        nes.bus.print_ram(0x0000, 0x001F);
+        nes.bus.print_ram(ADDR_PRG_ROM as u16, 0x801F);
 
         println!();
         print_instructions(&lines, state.pc);
 
         println!("\nPress Enter to step, q to quit...");
+
         let mut input = String::new();
         stdin().read_line(&mut input).unwrap();
+
         if input.trim().to_lowercase() == "q" {
             break;
         }
 
-        cpu.step_to_next_instruction(&mut bus);
+        nes.cpu.step_to_next_instruction(&mut nes.bus);
     }
+
+    Ok(())
 }
 
 fn print_cpu_status(processor_status: u8) {
