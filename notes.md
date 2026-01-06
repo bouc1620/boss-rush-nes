@@ -14,7 +14,6 @@ Nes (owns everything)
 ## Interrupts
 
 Peut-être possible d'utiliser les enums et le pattern matching pour les interrupts.
-Ou encore pour les mappers.
 
 ## Bus
 
@@ -56,3 +55,5 @@ Todos:
 	- Choisir où utiliser u16 et où utiliser usize pour les adresses, présentement les types sont mélangés.
 	- Implémenter une erreur custom pour Cartridge from_rom et from_program, thiserror crate.
 	- Déplacer les méthodes debug implémentées pour des struct comme Cpu et Bus dans le debug module.
+	- Si Nes n'a pas besoin de Cartridge faire du Bus le owner de l'instance, retirer les ref counter.
+	  Ou peut-être que Nes en tant que tel est une indirection inutile, remplacer par Bus et renommer Bus en Nes.
