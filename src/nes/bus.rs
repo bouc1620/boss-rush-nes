@@ -3,6 +3,7 @@ use super::ppu::Ppu;
 use std::cell::RefCell;
 use std::rc::Rc;
 
+pub const ADDR_PRG_RAM: usize = 0x6000;
 pub const ADDR_PRG_ROM: usize = 0x8000;
 pub const ADDR_RESET_VECTOR: usize = 0xFFFC;
 
@@ -23,6 +24,7 @@ impl Bus {
 }
 
 impl Bus {
+    // TODO: implement usage of readonly argument
     pub fn cpu_read(&self, addr: u16, _readonly: bool) -> u8 {
         if addr < 0x2000 {
             // Internal RAM: 0x0000 - 0x1FFF (mirrored 3 times)
@@ -30,15 +32,14 @@ impl Bus {
             self.ram[addr as usize]
         } else if addr < 0x4000 {
             // PPU registers: $2000 - $3FFF (mirrored every 8 bytes)
-            let addr = 0x2000 + (addr & 0x0007);
-            self.ppu.borrow_mut().registers[addr as usize]
+            let reg = (addr & 0x0007) as usize;
+            self.ppu.borrow_mut().registers[reg]
         } else if addr < 0x4017 {
             // APU / IO: $4000 - $4017
             self.ram[addr as usize]
-        } else if addr >= ADDR_PRG_ROM as u16 {
-            // Cartridge PRG-ROM: 0x8000 - 0xFFFF
-            let offset = (addr as usize) - ADDR_PRG_ROM;
-            self.cartridge.borrow().read(offset)
+        } else if addr >= ADDR_PRG_RAM as u16 {
+            // Cartridge PGR-RAM and PRG-ROM: 0x6000 - 0xFFFF
+            self.cartridge.borrow().cpu_read(addr as usize)
         } else {
             0
         }
@@ -49,9 +50,16 @@ impl Bus {
             // Internal RAM: 0x0000 - 0x1FFF (mirrored 3 times)
             let addr = addr & 0x07FF;
             self.ram[addr as usize] = data;
+        } else if addr < 0x4000 {
+            let reg = (addr & 0x0007) as usize;
+            self.ppu.borrow_mut().registers[reg] = data;
+        } else if addr >= ADDR_PRG_RAM as u16 {
+            // Cartridge PGR-RAM and PRG-ROM: 0x6000 - 0xFFFF
+            self.cartridge.borrow_mut().cpu_write(addr as usize, data);
         }
     }
 
+    // TODO: implement usage of readonly argument
     pub fn ppu_read(&self, addr: u16, _readonly: bool) -> u8 {
         if addr < 0x2000 {
             // Internal RAM: 0x0000 - 0x1FFF (mirrored 3 times)

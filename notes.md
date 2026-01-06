@@ -49,3 +49,10 @@ pub(crate) mod x;
 		Visible anywhere in this crate
 		Hidden from other crates
 ```
+
+---
+
+Todos:
+	- Choisir où utiliser u16 et où utiliser usize pour les adresses, présentement les types sont mélangés.
+	- Implémenter une erreur custom pour Cartridge from_rom et from_program, thiserror crate.
+	- Déplacer les méthodes debug implémentées pour des struct comme Cpu et Bus dans le debug module.

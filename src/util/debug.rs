@@ -161,14 +161,21 @@ fn disassemble(bus: &Bus, start: u16, end: u16) -> BTreeMap<u16, String> {
                 instruction_str = format!("{}${:02X}, Y {}", instruction_str, lo, "{ZPY}");
             }
             AddrMode::Rel => {
-                let value = bus.cpu_read(addr, true);
+                let value = bus.cpu_read(addr, true) as u16;
                 addr += 1;
+
+                let value = if value & 0x0080 != 0 {
+                    // If bit 7 isset, fill upper byte with 1s to preserve negative value
+                    value | 0xFF00
+                } else {
+                    value
+                };
 
                 instruction_str = format!(
                     "{}${:02X} [${:04X}] {}",
                     instruction_str,
                     value,
-                    addr.wrapping_add(value as u16),
+                    addr.wrapping_add(value),
                     "{REL}"
                 );
             }
