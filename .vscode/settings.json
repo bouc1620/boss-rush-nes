@@ -1,5 +1,5 @@
 {
-  // Format Rust files on save using rust-analyzer
+  // Rust editor settings
   "[rust]": {
     "editor.formatOnSave": true,
     "editor.defaultFormatter": "rust-lang.rust-analyzer",
@@ -8,19 +8,20 @@
     "editor.inlayHints.enabled": "off"
   },
 
-  // Organize imports automatically for Rust
+  // Code actions on save
   "editor.codeActionsOnSave": {
     "source.organizeImports": "explicit"
   },
 
-  // Enable rust-analyzer features
-  // "rust-analyzer.checkOnSave": true,
-  "rust-analyzer.check.command": "clippy",
+  // Rust-analyzer features
   "rust-analyzer.procMacro.enable": true,
   "rust-analyzer.diagnostics.disabled": ["unlinked-file"],
   "rust-analyzer.inlayHints.parameterHints.enable": false,
   "rust-analyzer.inlayHints.typeHints.enable": false,
   "rust-analyzer.lens.implementations.enable": false,
-
-  "rust-analyzer.cargo.features": ["debug"]
+  "rust-analyzer.lens.run.enable": false,
+  "rust-analyzer.lens.debug.enable": false,
+  "rust-analyzer.check.command": "clippy"
+  
+  // "rust-analyzer.cargo.features": ["debug"],
 }
