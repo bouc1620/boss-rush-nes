@@ -1,0 +1,15 @@
+{
+  "description": {
+    "fr": "Un émulateur NES écrit en Rust.",
+    "en": "An NES emulator written in Rust."
+  },
+  "keywords": [
+    "emulator",
+    "6502 Assembly",
+    "bitwise operations",
+    "APU audio"
+  ],
+  "languages": [
+    "Rust"
+  ]
+}
