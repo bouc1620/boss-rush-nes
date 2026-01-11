@@ -3,12 +3,20 @@
     "fr": "Un émulateur NES basique écrit en Rust, créé surtout pour apprendre le langage et comprendre le fonctionnement d’une NES.",
     "en": "A basic NES emulator written in Rust. The project was primarily created to explore Rust programming, while also providing a simple, hands-on example of how classic NES hardware can be emulated in software."
   },
-  "keywords": [
-    "emulator",
-    "6502 Assembly",
-    "bitwise operations",
-    "APU audio"
-  ],
+  "keywords": {
+    "fr": [
+      "émulateur",
+      "langage assembleur 6502",
+      "opérations binaires",
+      "Audio APU"
+    ],
+    "en": [
+      "emulator",
+      "6502 Assembly",
+      "bitwise operations",
+      "APU audio"
+    ]
+  },
   "languages": [
     "Rust"
   ]
