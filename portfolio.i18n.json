@@ -5,12 +5,14 @@
   },
   "keywords": {
     "fr": [
+      "Rust",
       "émulateur NES",
       "langage assembleur 6502",
       "opérations binaires",
       "audio APU"
     ],
     "en": [
+      "Rust",
       "NES emulator",
       "6502 Assembly",
       "bitwise operations",
