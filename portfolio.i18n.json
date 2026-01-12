@@ -16,8 +16,5 @@
       "bitwise operations",
       "APU audio"
     ]
-  },
-  "languages": [
-    "Rust"
-  ]
+  }
 }
