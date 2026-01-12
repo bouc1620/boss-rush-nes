@@ -5,13 +5,13 @@
   },
   "keywords": {
     "fr": [
-      "émulateur",
+      "émulateur NES",
       "langage assembleur 6502",
       "opérations binaires",
-      "Audio APU"
+      "audio APU"
     ],
     "en": [
-      "emulator",
+      "NES emulator",
       "6502 Assembly",
       "bitwise operations",
       "APU audio"
